@@ -1,0 +1,11 @@
+{
+	"id": "scriptorium-obsidian",
+	"name": "Scriptorium Nostr",
+	"version": "0.1.0",
+	"minAppVersion": "0.15.0",
+	"description": "Create, edit, and publish Nostr document events from Obsidian",
+	"author": "Scriptorium",
+	"authorUrl": "",
+	"fundingUrl": "",
+	"isDesktopOnly": false
+}

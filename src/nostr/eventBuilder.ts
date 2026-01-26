@@ -1,0 +1,202 @@
+import { finalizeEvent, getEventHash, getPublicKey, nip19 } from "nostr-tools";
+import { EventKind, EventMetadata, SignedEvent } from "../types";
+
+/**
+ * Normalize secret key from bech32 nsec or hex format to hex
+ */
+export function normalizeSecretKey(key: string): string {
+	if (key.startsWith("nsec")) {
+		try {
+			const decoded = nip19.decode(key);
+			if (decoded.type === "nsec") {
+				return decoded.data;
+			}
+		} catch (e) {
+			throw new Error(`Invalid nsec format: ${e}`);
+		}
+	}
+	// Assume hex format (64 chars)
+	if (key.length === 64) {
+		return key.toLowerCase();
+	}
+	throw new Error("Invalid key format. Expected nsec bech32 or 64-char hex string.");
+}
+
+/**
+ * Get public key from private key
+ */
+export function getPubkeyFromPrivkey(privkey: string): string {
+	const normalized = normalizeSecretKey(privkey);
+	return getPublicKey(normalized);
+}
+
+/**
+ * Build tags array from metadata
+ */
+export function buildTagsFromMetadata(
+	metadata: EventMetadata,
+	pubkey: string,
+	childEvents?: Array<{ kind: number; dTag: string; eventId?: string }>
+): string[][] {
+	const tags: string[][] = [];
+
+	switch (metadata.kind) {
+		case 1:
+			// No special tags required
+			break;
+
+		case 11:
+			// No special tags required
+			break;
+
+		case 30023:
+			// Long-form article
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 30023");
+			}
+			tags.push(["d", normalizeDTag(metadata.title)]);
+			if (metadata.title) tags.push(["title", metadata.title]);
+			if (metadata.image) tags.push(["image", metadata.image]);
+			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			if (metadata.published_at) tags.push(["published_at", metadata.published_at]);
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
+			break;
+
+		case 30040:
+			// Publication index
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 30040");
+			}
+			tags.push(["d", normalizeDTag(metadata.title)]);
+			if (metadata.title) tags.push(["title", metadata.title]);
+			if (metadata.author) tags.push(["author", metadata.author]);
+			if (metadata.type) tags.push(["type", metadata.type]);
+			if (metadata.version) tags.push(["version", metadata.version]);
+			if (metadata.published_on) tags.push(["published_on", metadata.published_on]);
+			if (metadata.published_by) tags.push(["published_by", metadata.published_by]);
+			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			if (metadata.source) tags.push(["source", metadata.source]);
+			if (metadata.image) tags.push(["image", metadata.image]);
+			if (metadata.auto_update) {
+				tags.push(["auto-update", metadata.auto_update]);
+			}
+			if (metadata.derivative_author) {
+				tags.push(["p", metadata.derivative_author]);
+			}
+			if (metadata.derivative_event) {
+				const eTag = ["E", metadata.derivative_event];
+				if (metadata.derivative_relay) eTag.push(metadata.derivative_relay);
+				if (metadata.derivative_pubkey) eTag.push(metadata.derivative_pubkey);
+				tags.push(eTag);
+			}
+			// NKBIP-08 tags
+			if (metadata.collection_id) tags.push(["C", metadata.collection_id]);
+			if (metadata.version_tag) tags.push(["v", metadata.version_tag]);
+			// Additional tags
+			if (metadata.additional_tags) {
+				metadata.additional_tags.forEach((tag) => tags.push(tag));
+			}
+			// a tags for child events
+			if (childEvents) {
+				childEvents.forEach((child) => {
+					const aTag = ["a", `${child.kind}:${pubkey}:${child.dTag}`];
+					if (child.eventId) aTag.push("", child.eventId);
+					tags.push(aTag);
+				});
+			}
+			break;
+
+		case 30041:
+			// Publication content
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 30041");
+			}
+			tags.push(["d", normalizeDTag(metadata.title)]);
+			if (metadata.title) tags.push(["title", metadata.title]);
+			// NKBIP-08 tags
+			if (metadata.collection_id) tags.push(["C", metadata.collection_id]);
+			if (metadata.title_id) tags.push(["T", metadata.title_id]);
+			if (metadata.chapter_id) tags.push(["c", metadata.chapter_id]);
+			if (metadata.section_id) tags.push(["s", metadata.section_id]);
+			if (metadata.version_tag) tags.push(["v", metadata.version_tag]);
+			break;
+
+		case 30817:
+			// Wiki page (Markdown)
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 30817");
+			}
+			tags.push(["d", normalizeDTag(metadata.title)]);
+			if (metadata.title) tags.push(["title", metadata.title]);
+			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			break;
+
+		case 30818:
+			// Wiki page (AsciiDoc)
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 30818");
+			}
+			tags.push(["d", normalizeDTag(metadata.title)]);
+			if (metadata.title) tags.push(["title", metadata.title]);
+			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			break;
+	}
+
+	return tags;
+}
+
+/**
+ * Normalize d-tag per NIP-54 rules
+ */
+export function normalizeDTag(title: string): string {
+	// All letters with uppercase/lowercase variants → lowercase
+	let normalized = title.toLowerCase();
+
+	// Whitespace → `-`
+	normalized = normalized.replace(/\s+/g, "-");
+
+	// Punctuation and symbols → removed (except hyphens)
+	normalized = normalized.replace(/[^\p{L}\p{N}-]/gu, "");
+
+	// Multiple consecutive `-` → single `-`
+	normalized = normalized.replace(/-+/g, "-");
+
+	// Leading and trailing `-` → removed
+	normalized = normalized.replace(/^-+|-+$/g, "");
+
+	// Non-ASCII letters and numbers are preserved (already handled by regex above)
+
+	return normalized;
+}
+
+/**
+ * Create and sign a Nostr event
+ */
+export function createSignedEvent(
+	kind: EventKind,
+	content: string,
+	tags: string[][],
+	privkey: string,
+	createdAt?: number
+): SignedEvent {
+	const normalizedKey = normalizeSecretKey(privkey);
+	const pubkey = getPublicKey(normalizedKey);
+	const created_at = createdAt || Math.floor(Date.now() / 1000);
+
+	const unsignedEvent = {
+		kind,
+		pubkey,
+		created_at,
+		tags,
+		content,
+	};
+
+	const signedEvent = finalizeEvent(unsignedEvent, normalizedKey);
+
+	return {
+		...signedEvent,
+		kind: kind as EventKind,
+	};
+}
