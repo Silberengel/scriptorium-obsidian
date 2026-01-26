@@ -422,29 +422,66 @@ export default class ScriptoriumPlugin extends Plugin {
 					} else {
 						content = `# ${title}\n\n`;
 					}
+				} else if (kind === 1 || kind === 11) {
+					// For kind 1 and 11, add a simple placeholder
+					content = `\n`;
 				}
 
-				// Create the file
-				const file = await this.app.vault.create(filePath, content);
+				// Create the file - ensure we have at least a newline for empty files
+				if (!content) {
+					content = "\n";
+				}
+				
+				let file: TFile;
+				try {
+					file = await this.app.vault.create(filePath, content);
+					
+					// Verify file was actually created
+					const verifyFile = this.app.vault.getAbstractFileByPath(filePath);
+					if (!verifyFile || !(verifyFile instanceof TFile)) {
+						new Notice(`Error: File ${filename} was not created properly`);
+						safeConsoleError(`File creation verification failed for ${filePath}`);
+						return;
+					}
+				} catch (error: any) {
+					const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+					new Notice(`Error creating file: ${safeMessage}`);
+					safeConsoleError("Error creating file:", error);
+					safeConsoleError("File path was:", filePath);
+					return;
+				}
 
 				// Create metadata
 				const metadata = createDefaultMetadata(kind);
 				if (metadata.title === "" && title) {
 					(metadata as any).title = title;
 				}
-				await writeMetadata(file, metadata, this.app);
-
-				// Open the new file in Obsidian workspace (use active leaf or create new)
-				const leaf = this.app.workspace.getMostRecentLeaf();
-				if (leaf) {
-					await leaf.openFile(file);
-				} else {
-					// Fallback: open in new leaf
-					const newLeaf = this.app.workspace.getLeaf("tab");
-					await newLeaf.openFile(file);
+				
+				try {
+					await writeMetadata(file, metadata, this.app);
+				} catch (error: any) {
+					const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+					new Notice(`Error creating metadata: ${safeMessage}`);
+					safeConsoleError("Error creating metadata:", error);
+					// Continue anyway - file was created
 				}
 
-				new Notice(`Created ${filename} with metadata`);
+				// Open the new file in Obsidian workspace (use active leaf or create new)
+				try {
+					const leaf = this.app.workspace.getMostRecentLeaf();
+					if (leaf) {
+						await leaf.openFile(file);
+					} else {
+						// Fallback: open in new leaf
+						const newLeaf = this.app.workspace.getLeaf("tab");
+						await newLeaf.openFile(file);
+					}
+				} catch (error: any) {
+					safeConsoleError("Error opening file:", error);
+					// File was created, just couldn't open it
+				}
+
+				new Notice(`Created ${filename} in ${folderPath}`);
 			} catch (error: any) {
 				const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
 				new Notice(`Error creating document: ${safeMessage}`);
