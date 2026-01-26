@@ -136,6 +136,7 @@ export async function fetchRelayList(
 
 /**
  * Normalize a relay URL
+ * - Removes /ReadWrite, /Read, /Write suffixes
  * - Removes trailing slashes
  * - Ensures lowercase
  * - Validates wss:// or ws:// protocol
@@ -144,6 +145,9 @@ export function normalizeRelayUrl(url: string): string {
 	if (!url) return url;
 	
 	let normalized = url.trim().toLowerCase();
+	
+	// Remove /ReadWrite, /Read, /Write suffixes (case insensitive)
+	normalized = normalized.replace(/\/(readwrite|read|write)\/?$/i, "");
 	
 	// Remove trailing slashes
 	normalized = normalized.replace(/\/+$/, "");

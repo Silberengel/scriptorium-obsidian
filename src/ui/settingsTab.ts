@@ -256,14 +256,22 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 			containerEl.createEl("h4", { text: "Current Relays" });
 			this.plugin.settings.relayList.forEach((relay, index) => {
 				const relayDiv = containerEl.createDiv({ cls: "scriptorium-relay-item" });
-				relayDiv.createSpan({ text: relay.url });
+				
+				// Display URL without ReadWrite suffix
+				const urlSpan = relayDiv.createSpan({ text: relay.url });
+				urlSpan.style.fontFamily = "monospace";
+				urlSpan.style.marginRight = "8px";
+				
+				// Display permissions as badges
 				const badges = relayDiv.createSpan({ cls: "scriptorium-relay-badges" });
-				if (relay.read) {
+				if (relay.read && relay.write) {
+					badges.createSpan({ text: "Read/Write", cls: "scriptorium-badge" });
+				} else if (relay.read) {
 					badges.createSpan({ text: "Read", cls: "scriptorium-badge" });
-				}
-				if (relay.write) {
+				} else if (relay.write) {
 					badges.createSpan({ text: "Write", cls: "scriptorium-badge" });
 				}
+				
 				new Setting(relayDiv)
 					.addButton((button) => {
 						button.setButtonText("Remove")
