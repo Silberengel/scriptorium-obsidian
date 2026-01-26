@@ -168,6 +168,13 @@ export default class ScriptoriumPlugin extends Plugin {
 			await this.app.vault.createFolder(fullPath);
 		}
 
+		// Refresh file explorer to show new folders
+		// @ts-ignore - refresh file explorer
+		if (this.app.workspace.leftSplit) {
+			// @ts-ignore
+			this.app.workspace.leftSplit.refresh();
+		}
+
 		return fullPath;
 	}
 
@@ -427,8 +434,15 @@ export default class ScriptoriumPlugin extends Plugin {
 				}
 				await writeMetadata(file, metadata, this.app);
 
-				// Open the new file
-				await this.app.workspace.openLinkText(filePath, "", true);
+				// Open the new file in Obsidian workspace (use active leaf or create new)
+				const leaf = this.app.workspace.getMostRecentLeaf();
+				if (leaf) {
+					await leaf.openFile(file);
+				} else {
+					// Fallback: open in new leaf
+					const newLeaf = this.app.workspace.getLeaf("tab");
+					await newLeaf.openFile(file);
+				}
 
 				new Notice(`Created ${filename} with metadata`);
 			} catch (error: any) {
