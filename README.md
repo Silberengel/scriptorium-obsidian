@@ -33,11 +33,44 @@ An Obsidian plugin for creating, editing, and publishing Nostr document events d
 
 ## Setup
 
-1. Set your Nostr private key in the environment variable `SCRIPTORIUM_OBSIDIAN_KEY`:
-   - Format: `nsec1...` (bech32) or 64-character hex string
-2. Open Obsidian settings → Scriptorium Nostr
-3. Click "Refresh from Env" to load your private key
-4. Click "Fetch" to get your relay list from Nostr relays
+### Private Key Configuration
+
+You have three options to set your private key:
+
+**Option 1: Manual Entry (Easiest)**
+1. Open Obsidian settings → Scriptorium Nostr
+2. Enter your private key in the password field
+3. Click "Set Key"
+
+**Option 2: File in Vault (Most Reliable)**
+1. Create a file named `.scriptorium_key` in your vault root
+2. Put your private key on a single line (nsec1... or 64-char hex)
+3. Open plugin settings and click "Refresh"
+
+**Option 3: Environment Variable**
+1. Set `SCRIPTORIUM_OBSIDIAN_KEY` in your terminal:
+   ```bash
+   export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
+   ```
+2. **Important:** Launch Obsidian from the same terminal:
+   ```bash
+   obsidian
+   ```
+   (If Obsidian is already running, close it and restart from the terminal)
+3. Open plugin settings → Scriptorium Nostr
+4. Click "Refresh" to load your private key
+
+**Note:** Environment variables are only available to processes launched from the terminal where they were set. If you launch Obsidian from a desktop shortcut or application menu, it won't have access to the environment variable. You must launch Obsidian from the terminal where you set the variable.
+
+See [ENV_SETUP.md](ENV_SETUP.md) for detailed instructions on setting environment variables.
+
+**Key Format:** `nsec1...` (bech32) or 64-character hex string
+
+### Relay Configuration
+
+1. Open Obsidian settings → Scriptorium Nostr
+2. Click "Fetch" to get your relay list from Nostr relays
+3. The plugin will automatically fetch from `wss://profiles.nostr1.com`, `wss://relay.damus.io`, and `wss://thecitadel.nostr1.com`
 
 ## Usage
 

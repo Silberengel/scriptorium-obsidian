@@ -61,21 +61,57 @@ export default class ScriptoriumPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	async loadPrivateKey() {
-		// Try to load from environment variable
-		// Note: In Obsidian, process.env may not be available
-		// Users should set the key manually in settings or via system environment
+	async loadPrivateKey(): Promise<boolean> {
+		// Try multiple methods to load the private key
+		
+		// Method 1: Try environment variable (may not work in Obsidian's sandbox)
 		try {
 			// @ts-ignore - process.env may not be typed in Obsidian context
-			const envKey = typeof process !== "undefined" && process.env?.SCRIPTORIUM_OBSIDIAN_KEY;
-			if (envKey) {
-				this.settings.privateKey = envKey;
-				await this.saveSettings();
+			if (typeof process !== "undefined" && process.env?.SCRIPTORIUM_OBSIDIAN_KEY) {
+				const envKey = process.env.SCRIPTORIUM_OBSIDIAN_KEY.trim();
+				if (envKey) {
+					this.settings.privateKey = envKey;
+					await this.saveSettings();
+					return true;
+				}
 			}
 		} catch (error) {
-			// Environment variable access not available, user must set manually
-			safeConsoleLog("Environment variable access not available, use settings to set private key");
+			// Environment variable access not available
 		}
+		
+		// Method 2: Try reading from a file in the vault (.scriptorium_key)
+		try {
+			const keyFile = this.app.vault.getAbstractFileByPath(".scriptorium_key");
+			if (keyFile && keyFile instanceof TFile) {
+				const keyContent = await this.app.vault.read(keyFile);
+				const key = keyContent.trim();
+				if (key && (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key))) {
+					this.settings.privateKey = key;
+					await this.saveSettings();
+					return true;
+				}
+			}
+		} catch (error) {
+			// File doesn't exist or can't be read
+		}
+		
+		// Method 3: Try reading from .obsidian/scriptorium_key (hidden file)
+		try {
+			const hiddenKeyFile = this.app.vault.getAbstractFileByPath(".obsidian/scriptorium_key");
+			if (hiddenKeyFile && hiddenKeyFile instanceof TFile) {
+				const keyContent = await this.app.vault.read(hiddenKeyFile);
+				const key = keyContent.trim();
+				if (key && (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key))) {
+					this.settings.privateKey = key;
+					await this.saveSettings();
+					return true;
+				}
+			}
+		} catch (error) {
+			// File doesn't exist or can't be read
+		}
+		
+		return false;
 	}
 
 	private async getCurrentFile(): Promise<TFile | null> {

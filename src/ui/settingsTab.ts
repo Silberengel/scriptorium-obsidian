@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import ScriptoriumPlugin from "../main";
 import { EventKind } from "../types";
 import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel, getReadRelays } from "../relayManager";
@@ -23,34 +23,86 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "Scriptorium Nostr Settings" });
 
-		// User Identity (npub and handle)
+		// User Identity (npub and handle) or Private Key Input
 		if (this.plugin.settings.privateKey) {
 			try {
 				const npub = getNpubFromPrivkey(this.plugin.settings.privateKey);
 				const pubkey = getPubkeyFromPrivkey(this.plugin.settings.privateKey);
 				
 				// Fetch profile to get handle/name
-				let profile: { name?: string; display_name?: string } | null = null;
+				let profile: { name?: string; display_name?: string; username?: string; nip05?: string } | null = null;
 				const readRelays = getReadRelays(this.plugin.settings.relayList);
 				if (readRelays.length > 0) {
 					profile = await fetchUserProfile(pubkey, readRelays);
 				}
 				
-				const displayName = profile?.display_name || profile?.name || "Unknown";
+				// Priority: nip05 (handle) > display_name > name > username > "Unknown"
+				const displayName = profile?.nip05 || 
+				                    profile?.display_name || 
+				                    profile?.name || 
+				                    profile?.username || 
+				                    "Unknown";
+				
+				// Build description with what we found
+				let identityDesc = "Your Nostr public identity";
+				if (profile) {
+					const parts: string[] = [];
+					if (profile.nip05) parts.push(`NIP-05: ${profile.nip05}`);
+					if (profile.display_name) parts.push(`Display: ${profile.display_name}`);
+					if (profile.name) parts.push(`Name: ${profile.name}`);
+					if (parts.length > 0) {
+						identityDesc += `\n${parts.join(" | ")}`;
+					}
+				} else if (readRelays.length > 0) {
+					identityDesc += "\n(Profile not found on relays - may need to publish kind 0 event)";
+				} else {
+					identityDesc += "\n(No read relays configured - fetch relay list first)";
+				}
 				
 				new Setting(containerEl)
 					.setName("Your Identity")
-					.setDesc("Your Nostr public identity (loaded from SCRIPTORIUM_OBSIDIAN_KEY)")
+					.setDesc(identityDesc)
 					.addText((text) => {
 						text.setValue(`${displayName} (${npub})`)
 							.setDisabled(true);
 					})
 					.addButton((button) => {
-						button.setButtonText("Refresh from Env")
+						button.setButtonText("Refresh")
 							.setCta()
 							.onClick(async () => {
-								await this.plugin.loadPrivateKey();
+								const loaded = await this.plugin.loadPrivateKey();
+								if (!loaded && !this.plugin.settings.privateKey) {
+									new Notice("Could not load private key. Please enter it manually below.");
+								}
 								await this.display();
+							});
+					});
+				
+				// Allow manual update of private key
+				new Setting(containerEl)
+					.setName("Update Private Key")
+					.setDesc("Manually enter or update your private key (nsec1... or 64-char hex). Leave empty to keep current.")
+					.addText((text) => {
+						text.setPlaceholder("nsec1... or hex key")
+							.setValue("")
+							.inputEl.type = "password";
+					})
+					.addButton((button) => {
+						button.setButtonText("Update")
+							.onClick(async () => {
+								const input = containerEl.querySelector("input[type='password']") as HTMLInputElement;
+								if (input && input.value.trim()) {
+									const key = input.value.trim();
+									if (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key)) {
+										this.plugin.settings.privateKey = key;
+										await this.plugin.saveSettings();
+										input.value = "";
+										new Notice("Private key updated successfully");
+										await this.display();
+									} else {
+										new Notice("Invalid key format. Expected nsec1... or 64-char hex string.");
+									}
+								}
 							});
 					});
 			} catch (error: any) {
@@ -58,7 +110,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					.setName("Private Key Status")
 					.setDesc(`Error: ${error.message}`)
 					.addButton((button) => {
-						button.setButtonText("Refresh from Env")
+						button.setButtonText("Refresh")
 							.setCta()
 							.onClick(async () => {
 								await this.plugin.loadPrivateKey();
@@ -69,13 +121,40 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		} else {
 			new Setting(containerEl)
 				.setName("Private Key")
-				.setDesc("No private key found. Set SCRIPTORIUM_OBSIDIAN_KEY environment variable.")
+				.setDesc("Enter your private key manually, or set SCRIPTORIUM_OBSIDIAN_KEY environment variable, or create .scriptorium_key file in vault root.")
+				.addText((text) => {
+					text.setPlaceholder("nsec1... or 64-char hex key")
+						.inputEl.type = "password";
+				})
 				.addButton((button) => {
-					button.setButtonText("Refresh from Env")
+					button.setButtonText("Set Key")
 						.setCta()
 						.onClick(async () => {
-							await this.plugin.loadPrivateKey();
-							await this.display();
+							const input = containerEl.querySelector("input[type='password']") as HTMLInputElement;
+							if (input && input.value.trim()) {
+								const key = input.value.trim();
+								if (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key)) {
+									this.plugin.settings.privateKey = key;
+									await this.plugin.saveSettings();
+									input.value = "";
+									new Notice("Private key saved successfully");
+									await this.display();
+								} else {
+									new Notice("Invalid key format. Expected nsec1... or 64-char hex string.");
+								}
+							}
+						});
+				})
+				.addButton((button) => {
+					button.setButtonText("Refresh")
+						.onClick(async () => {
+							const loaded = await this.plugin.loadPrivateKey();
+							if (loaded) {
+								new Notice("Private key loaded successfully");
+								await this.display();
+							} else {
+								new Notice("Could not load private key. Please enter it manually above.");
+							}
 						});
 				});
 		}

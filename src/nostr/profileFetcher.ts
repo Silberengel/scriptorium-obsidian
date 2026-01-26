@@ -7,6 +7,8 @@ import { safeConsoleError } from "../utils/security";
 export interface UserProfile {
 	name?: string;
 	display_name?: string;
+	username?: string;
+	nip05?: string; // NIP-05 identifier (handle)
 	about?: string;
 	picture?: string;
 }
@@ -17,19 +19,29 @@ export interface UserProfile {
 export async function fetchUserProfile(
 	pubkey: string,
 	relayUrls: string[],
-	timeout: number = 5000
+	timeout: number = 10000
 ): Promise<UserProfile | null> {
-	for (const relayUrl of relayUrls) {
-		try {
-			const profile = await fetchProfileFromRelay(relayUrl, pubkey, timeout);
-			if (profile) {
-				return profile;
-			}
-		} catch (error) {
+	if (relayUrls.length === 0) {
+		return null;
+	}
+	
+	// Try all relays in parallel for faster response
+	const promises = relayUrls.map(relayUrl => 
+		fetchProfileFromRelay(relayUrl, pubkey, timeout).catch(error => {
 			safeConsoleError(`Error fetching profile from ${relayUrl}:`, error);
-			continue;
+			return null;
+		})
+	);
+	
+	const results = await Promise.all(promises);
+	
+	// Return first successful result
+	for (const profile of results) {
+		if (profile) {
+			return profile;
 		}
 	}
+	
 	return null;
 }
 
@@ -54,39 +66,56 @@ async function fetchProfileFromRelay(
 			relay = new Relay(relayUrl);
 			await relay.connect();
 
+			let profileReceived = false;
+			
 			const sub = relay.subscribe(
 				[
 					{
 						kinds: [0],
 						authors: [pubkey],
+						limit: 1,
 					},
 				],
 				{
 					onevent: (event) => {
+						if (profileReceived) return; // Only process first event
+						profileReceived = true;
 						clearTimeout(timer);
+						sub.close();
 						relay?.close();
 						try {
 							const profile = JSON.parse(event.content) as UserProfile;
-							resolve(profile);
+							// Validate that we got some profile data
+							if (profile && (profile.name || profile.display_name || profile.nip05 || profile.username)) {
+								resolve(profile);
+							} else {
+								resolve(null);
+							}
 						} catch (error) {
 							resolve(null);
 						}
 					},
 					oneose: () => {
-						clearTimeout(timer);
-						relay?.close();
-						resolve(null);
+						if (!profileReceived) {
+							clearTimeout(timer);
+							sub.close();
+							relay?.close();
+							resolve(null);
+						}
 					},
 				}
 			);
 
-			// Wait for response
+			// Wait for response with timeout
 			setTimeout(() => {
-				sub.close();
-				if (relay) {
-					relay.close();
+				if (!profileReceived) {
+					sub.close();
+					if (relay) {
+						relay.close();
+					}
+					resolve(null);
 				}
-			}, timeout - 100);
+			}, timeout);
 		} catch (error) {
 			clearTimeout(timer);
 			if (relay) {
