@@ -1,23 +1,35 @@
-# Scriptorium Obsidian Plugin
+# Scriptorium Nostr
 
 An Obsidian plugin for creating, editing, and publishing Nostr document events directly from your vault.
 
+**Author**: Silberengel  
+**Homepage**: https://gitcitadel.com  
+**Funding**: gitcitadel@getalby.com
+
 ## Features
 
-- **Multiple Event Kinds**: Support for kinds 1, 11, 30023, 30040, 30041, 30817, 30818
-- **AsciiDoc Support**: Automatic parsing and splitting of AsciiDoc documents into nested 30040/30041 structures
+- **Multiple Event Kinds**: Support for Markdown-formatted kinds (1, 11, 30023, 30817) and Asdciidoc-formatted kinds (30040, 30041, 30818).
+- **Bookstr Support**: Automatic parsing and splitting of e-books/publications into nested 30040/30041 structures
 - **Metadata Management**: YAML metadata files with validation per event kind
-- **Structure Preview**: Visual preview of document structure before creating events
+- **Structure Preview**: Visual preview of publication structure before creating events
 - **Two-Step Workflow**: Create and sign events separately from publishing
 - **Relay Management**: Automatic fetching of relay lists (kind 10002) with AUTH support
 - **d-tag Normalization**: Automatic NIP-54 compliant d-tag generation from titles
 
 ## Installation
 
+### Manual Installation
+
 1. Clone this repository
-2. Run `npm install`
+2. Run `npm install`.obsidian/plugins/scriptorium-obsidian/
 3. Run `npm run build`
-4. Copy the `main.js`, `manifest.json`, and `styles.css` (if any) to your Obsidian vault's `.obsidian/plugins/scriptorium-obsidian/` directory
+4. Create the plugin directory in your Obsidian vault (if it doesn't exist):
+   - Navigate to your vault's root directory
+   - Create `.obsidian/plugins/scriptorium-obsidian/` directory
+5. Copy the `main.js` and `manifest.json` files to `.obsidian/plugins/scriptorium-obsidian/`
+6. Reload Obsidian and enable the plugin in Settings → Community Plugins
+
+**Note**: The `.obsidian` folder is hidden by default. You may need to show hidden files in your file manager to see it.
 
 ## Setup
 
@@ -86,3 +98,9 @@ npm run build  # Production build
 ## License
 
 MIT
+
+## Author
+
+**Silberengel**  
+- Homepage: https://gitcitadel.com
+- Funding: gitcitadel@getalby.com

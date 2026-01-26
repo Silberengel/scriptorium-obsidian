@@ -10,6 +10,7 @@ import { publishEventsWithRetry } from "./nostr/relayClient";
 import { getWriteRelays } from "./relayManager";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { normalizeSecretKey, getPubkeyFromPrivkey } from "./nostr/eventBuilder";
+import { safeConsoleError, safeConsoleLog, verifyEventSecurity } from "./utils/security";
 
 export default class ScriptoriumPlugin extends Plugin {
 	settings!: ScriptoriumSettings;
@@ -73,7 +74,7 @@ export default class ScriptoriumPlugin extends Plugin {
 			}
 		} catch (error) {
 			// Environment variable access not available, user must set manually
-			console.log("Environment variable access not available, use settings to set private key");
+			safeConsoleLog("Environment variable access not available, use settings to set private key");
 		}
 	}
 
@@ -137,6 +138,15 @@ export default class ScriptoriumPlugin extends Plugin {
 				return;
 			}
 
+			// Security check: verify events don't contain private keys
+			for (const event of result.events) {
+				if (!verifyEventSecurity(event)) {
+					new Notice("Security error: Event contains private key. Aborting.");
+					safeConsoleError("Event security check failed - event may contain private key");
+					return;
+				}
+			}
+
 			// Show preview for structured documents
 			if (result.structure.length > 0) {
 				new StructurePreviewModal(this.app, result.structure, async () => {
@@ -148,8 +158,9 @@ export default class ScriptoriumPlugin extends Plugin {
 				new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
 			}
 		} catch (error: any) {
-			new Notice(`Error creating events: ${error.message}`);
-			console.error(error);
+			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+			new Notice(`Error creating events: ${safeMessage}`);
+			safeConsoleError("Error creating events:", error);
 		}
 	}
 
@@ -175,8 +186,9 @@ export default class ScriptoriumPlugin extends Plugin {
 			const structure = parseAsciiDocStructure(content, metadata as any);
 			new StructurePreviewModal(this.app, structure, () => {}).open();
 		} catch (error: any) {
-			new Notice(`Error previewing structure: ${error.message}`);
-			console.error(error);
+			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+			new Notice(`Error previewing structure: ${safeMessage}`);
+			safeConsoleError("Error previewing structure:", error);
 		}
 	}
 
@@ -231,8 +243,9 @@ export default class ScriptoriumPlugin extends Plugin {
 				new Notice(`Published ${successCount} event(s), ${failureCount} failed`);
 			}
 		} catch (error: any) {
-			new Notice(`Error publishing events: ${error.message}`);
-			console.error(error);
+			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+			new Notice(`Error publishing events: ${safeMessage}`);
+			safeConsoleError("Error publishing events:", error);
 		}
 	}
 
@@ -261,8 +274,9 @@ export default class ScriptoriumPlugin extends Plugin {
 				new Notice("Metadata saved");
 			}).open();
 		} catch (error: any) {
-			new Notice(`Error editing metadata: ${error.message}`);
-			console.error(error);
+			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+			new Notice(`Error editing metadata: ${safeMessage}`);
+			safeConsoleError("Error editing metadata:", error);
 		}
 	}
 }

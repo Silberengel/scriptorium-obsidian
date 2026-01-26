@@ -1,5 +1,6 @@
 import { TFile } from "obsidian";
 import { SignedEvent } from "./types";
+import { safeConsoleError, verifyEventSecurity } from "./utils/security";
 
 /**
  * Get events file path for a given file
@@ -19,6 +20,13 @@ export async function saveEvents(
 	events: SignedEvent[],
 	app: any
 ): Promise<void> {
+	// Security check: verify no events contain private keys
+	for (const event of events) {
+		if (!verifyEventSecurity(event)) {
+			throw new Error("Security error: Cannot save event containing private key");
+		}
+	}
+	
 	const eventsPath = getEventsFilePath(file);
 	const lines = events.map((event) => JSON.stringify(event));
 	const content = lines.join("\n") + "\n";
@@ -40,9 +48,19 @@ export async function loadEvents(
 		}
 		const content = await app.vault.read(eventsFile);
 		const lines = content.split("\n").filter((line: string) => line.trim().length > 0);
-		return lines.map((line: string) => JSON.parse(line) as SignedEvent);
+		const events = lines.map((line: string) => JSON.parse(line) as SignedEvent);
+		
+		// Security check: verify loaded events don't contain private keys
+		for (const event of events) {
+			if (!verifyEventSecurity(event)) {
+				safeConsoleError("Security warning: Loaded event contains private key - removing from results");
+				return [];
+			}
+		}
+		
+		return events;
 	} catch (error) {
-		console.error("Error loading events:", error);
+		safeConsoleError("Error loading events:", error);
 		return [];
 	}
 }
@@ -67,6 +85,6 @@ export async function deleteEvents(file: TFile, app: any): Promise<void> {
 			await app.vault.delete(eventsFile);
 		}
 	} catch (error) {
-		console.error("Error deleting events file:", error);
+		safeConsoleError("Error deleting events file:", error);
 	}
 }

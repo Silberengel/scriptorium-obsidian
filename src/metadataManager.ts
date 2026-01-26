@@ -1,6 +1,7 @@
 import * as yaml from "js-yaml";
 import { TFile } from "obsidian";
 import { EventKind, EventMetadata } from "./types";
+import { safeConsoleError } from "./utils/security";
 
 /**
  * Get metadata file path for a given file
@@ -29,7 +30,7 @@ export async function readMetadata(
 		const parsed = yaml.load(content) as any;
 		return parsed as EventMetadata;
 	} catch (error) {
-		console.error("Error reading metadata:", error);
+		safeConsoleError("Error reading metadata:", error);
 		return null;
 	}
 }

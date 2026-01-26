@@ -1,6 +1,7 @@
 import { Relay } from "nostr-tools";
 import { SignedEvent, PublishingResult } from "../types";
 import { ensureAuthenticated, handleAuthRequiredError } from "./authHandler";
+import { safeConsoleError } from "../utils/security";
 
 /**
  * Publish a single event to a relay
@@ -27,7 +28,7 @@ export async function publishEventToRelay(
 				handleAuthRequiredError(relay!, privkey, relayUrl, async () => {
 					return await relay!.publish(event);
 				}).catch((error) => {
-					console.error("Auth failed:", error);
+					safeConsoleError("Auth failed:", error);
 				});
 			}
 			if (originalOnNotice) {
@@ -64,22 +65,24 @@ export async function publishEventToRelay(
 			};
 		} catch (error: any) {
 			relay.close();
+			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Publish failed";
 			return {
 				eventId: event.id,
 				relay: relayUrl,
 				success: false,
-				message: error.message || "Publish failed",
+				message: safeMessage,
 			};
 		}
 	} catch (error: any) {
 		if (relay) {
 			relay.close();
 		}
+		const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Failed to connect to relay";
 		return {
 			eventId: event.id,
 			relay: relayUrl,
 			success: false,
-			message: error.message || "Failed to connect to relay",
+			message: safeMessage,
 		};
 	}
 }

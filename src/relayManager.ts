@@ -1,6 +1,7 @@
 import { Relay, getPublicKey } from "nostr-tools";
 import { RelayInfo } from "./types";
 import { normalizeSecretKey } from "./nostr/eventBuilder";
+import { safeConsoleError } from "./utils/security";
 
 /**
  * Default relay URLs to query for kind 10002
@@ -98,7 +99,7 @@ export async function fetchRelayListFromRelay(
 			if (relay) {
 				relay.close();
 			}
-			console.error(`Error fetching relay list from ${relayUrl}:`, error);
+			safeConsoleError(`Error fetching relay list from ${relayUrl}:`, error);
 			resolve(null);
 		}
 	});

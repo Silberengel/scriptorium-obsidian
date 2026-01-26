@@ -1,5 +1,6 @@
 import { Relay, finalizeEvent, getPublicKey } from "nostr-tools";
 import { normalizeSecretKey } from "./eventBuilder";
+import { safeConsoleError } from "../utils/security";
 
 /**
  * Handle AUTH challenge from relay (NIP-42)
@@ -21,7 +22,7 @@ export async function handleAuthChallenge(
 		});
 		return true;
 	} catch (error) {
-		console.error("Error handling AUTH challenge:", error);
+		safeConsoleError("Error handling AUTH challenge:", error);
 		return false;
 	}
 }
@@ -46,7 +47,7 @@ export async function ensureAuthenticated(
 		// The relay will call onauth if it needs authentication
 		return true;
 	} catch (error) {
-		console.error("Error ensuring authentication:", error);
+		safeConsoleError("Error ensuring authentication:", error);
 		return false;
 	}
 }
@@ -71,6 +72,8 @@ export async function handleAuthRequiredError(
 		// Retry original operation
 		return originalOperation();
 	} catch (error: any) {
-		throw new Error(`Failed to authenticate with relay: ${error.message}`);
+		// Sanitize error message to prevent private key leaks
+		const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+		throw new Error(`Failed to authenticate with relay: ${safeMessage}`);
 	}
 }

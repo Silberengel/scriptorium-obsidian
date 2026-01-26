@@ -1,5 +1,6 @@
 import { finalizeEvent, getEventHash, getPublicKey, nip19 } from "nostr-tools";
 import { EventKind, EventMetadata, SignedEvent } from "../types";
+import { sanitizeString } from "../utils/security";
 
 /**
  * Normalize secret key from bech32 nsec or hex format to hex
@@ -12,7 +13,8 @@ export function normalizeSecretKey(key: string): Uint8Array {
 				return decoded.data;
 			}
 		} catch (e) {
-			throw new Error(`Invalid nsec format: ${e}`);
+			const errorMsg = e instanceof Error ? e.message : String(e);
+			throw new Error(`Invalid nsec format: ${sanitizeString(errorMsg)}`);
 		}
 	}
 	// Assume hex format (64 chars)
@@ -40,6 +42,26 @@ export function getPubkeyFromPrivkey(privkey: string): string {
  */
 export function getPubkeyFromPrivkeyBytes(privkey: Uint8Array): string {
 	return getPublicKey(privkey);
+}
+
+/**
+ * Convert public key to npub (bech32 encoded)
+ */
+export function pubkeyToNpub(pubkey: string): string {
+	try {
+		return nip19.npubEncode(pubkey);
+	} catch (error) {
+		const errorMsg = error instanceof Error ? error.message : String(error);
+		throw new Error(`Failed to encode pubkey to npub: ${sanitizeString(errorMsg)}`);
+	}
+}
+
+/**
+ * Get npub from private key
+ */
+export function getNpubFromPrivkey(privkey: string): string {
+	const pubkey = getPubkeyFromPrivkey(privkey);
+	return pubkeyToNpub(pubkey);
 }
 
 /**

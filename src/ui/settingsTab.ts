@@ -1,8 +1,9 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import ScriptoriumPlugin from "../main";
 import { EventKind } from "../types";
-import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel } from "../relayManager";
-import { getPubkeyFromPrivkey } from "../nostr/eventBuilder";
+import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel, getReadRelays } from "../relayManager";
+import { getPubkeyFromPrivkey, getNpubFromPrivkey } from "../nostr/eventBuilder";
+import { fetchUserProfile } from "../nostr/profileFetcher";
 
 /**
  * Settings tab for the plugin
@@ -15,31 +16,69 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
+	async display(): Promise<void> {
 		const { containerEl } = this;
 
 		containerEl.empty();
 
 		containerEl.createEl("h2", { text: "Scriptorium Nostr Settings" });
 
-		// Private Key
-		new Setting(containerEl)
-			.setName("Private Key")
-			.setDesc("Your Nostr private key (nsec or hex). Loaded from SCRIPTORIUM_OBSIDIAN_KEY environment variable.")
-			.addText((text) => {
-				const key = this.plugin.settings.privateKey || "";
-				text.setValue(key ? "***" + key.slice(-4) : "")
-					.setPlaceholder("nsec1... or hex")
-					.setDisabled(true);
-			})
-			.addButton((button) => {
-				button.setButtonText("Refresh from Env")
-					.setCta()
-					.onClick(async () => {
-						await this.plugin.loadPrivateKey();
-						this.display();
+		// User Identity (npub and handle)
+		if (this.plugin.settings.privateKey) {
+			try {
+				const npub = getNpubFromPrivkey(this.plugin.settings.privateKey);
+				const pubkey = getPubkeyFromPrivkey(this.plugin.settings.privateKey);
+				
+				// Fetch profile to get handle/name
+				let profile: { name?: string; display_name?: string } | null = null;
+				const readRelays = getReadRelays(this.plugin.settings.relayList);
+				if (readRelays.length > 0) {
+					profile = await fetchUserProfile(pubkey, readRelays);
+				}
+				
+				const displayName = profile?.display_name || profile?.name || "Unknown";
+				
+				new Setting(containerEl)
+					.setName("Your Identity")
+					.setDesc("Your Nostr public identity (loaded from SCRIPTORIUM_OBSIDIAN_KEY)")
+					.addText((text) => {
+						text.setValue(`${displayName} (${npub})`)
+							.setDisabled(true);
+					})
+					.addButton((button) => {
+						button.setButtonText("Refresh from Env")
+							.setCta()
+							.onClick(async () => {
+								await this.plugin.loadPrivateKey();
+								await this.display();
+							});
 					});
-			});
+			} catch (error: any) {
+				new Setting(containerEl)
+					.setName("Private Key Status")
+					.setDesc(`Error: ${error.message}`)
+					.addButton((button) => {
+						button.setButtonText("Refresh from Env")
+							.setCta()
+							.onClick(async () => {
+								await this.plugin.loadPrivateKey();
+								await this.display();
+							});
+					});
+			}
+		} else {
+			new Setting(containerEl)
+				.setName("Private Key")
+				.setDesc("No private key found. Set SCRIPTORIUM_OBSIDIAN_KEY environment variable.")
+				.addButton((button) => {
+					button.setButtonText("Refresh from Env")
+						.setCta()
+						.onClick(async () => {
+							await this.plugin.loadPrivateKey();
+							await this.display();
+						});
+				});
+		}
 
 		// Default Event Kind
 		new Setting(containerEl)
@@ -125,7 +164,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 
 							this.plugin.settings.relayList = finalList;
 							await this.plugin.saveSettings();
-							this.display();
+							await this.display();
 						} catch (error: any) {
 							alert(`Error fetching relay list: ${error.message}`);
 						}
@@ -152,7 +191,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							.onClick(async () => {
 								this.plugin.settings.relayList.splice(index, 1);
 								await this.plugin.saveSettings();
-								this.display();
+								await this.display();
 							});
 					});
 			});
@@ -179,7 +218,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 									write: true,
 								});
 								await this.plugin.saveSettings();
-								this.display();
+								await this.display();
 							}
 						}
 					});
