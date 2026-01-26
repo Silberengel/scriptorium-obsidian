@@ -12,6 +12,13 @@ import { getWriteRelays } from "./relayManager";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { normalizeSecretKey, getPubkeyFromPrivkey } from "./nostr/eventBuilder";
 import { safeConsoleError, safeConsoleLog, verifyEventSecurity } from "./utils/security";
+// CodeMirror language packages for syntax highlighting
+// These will be bundled with the plugin
+import { yaml } from "@codemirror/lang-yaml";
+import { asciidoc } from "codemirror-asciidoc";
+import { StreamLanguage } from "@codemirror/language";
+import { Extension } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 
 export default class ScriptoriumPlugin extends Plugin {
 	settings!: ScriptoriumSettings;
@@ -19,6 +26,25 @@ export default class ScriptoriumPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 		await this.loadPrivateKey();
+
+		// Register AsciiDoc file extensions so Obsidian can open them
+		// This tells Obsidian to treat .adoc and .asciidoc files as editable text files
+		// Using "text" view type so they open as plain text editors in Obsidian
+		this.registerExtensions(["adoc", "asciidoc"], "text");
+		
+		// Register YAML file extensions so Obsidian can open metadata files
+		// This tells Obsidian to treat .yml and .yaml files as editable text files
+		this.registerExtensions(["yml", "yaml"], "text");
+		
+		// Register editor extensions for syntax highlighting
+		// Apply YAML and AsciiDoc language modes
+		// Note: Markdown files (.md) use Obsidian's default "markdown" view type
+		// which has built-in syntax highlighting, so they won't be affected by these extensions
+		// These extensions only apply to files registered with "text" view type (.yml, .yaml, .adoc, .asciidoc)
+		this.registerEditorExtension([
+			yaml(),
+			StreamLanguage.define(asciidoc)
+		]);
 
 		// Add settings tab
 		this.addSettingTab(new ScriptoriumSettingTab(this.app, this));
@@ -166,13 +192,6 @@ export default class ScriptoriumPlugin extends Plugin {
 		const kindFolderObj = this.app.vault.getAbstractFileByPath(fullPath);
 		if (!kindFolderObj || !(kindFolderObj instanceof TFolder)) {
 			await this.app.vault.createFolder(fullPath);
-		}
-
-		// Refresh file explorer to show new folders
-		// @ts-ignore - refresh file explorer
-		if (this.app.workspace.leftSplit) {
-			// @ts-ignore
-			this.app.workspace.leftSplit.refresh();
 		}
 
 		return fullPath;

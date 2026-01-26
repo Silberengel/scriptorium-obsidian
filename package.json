@@ -10,13 +10,13 @@
 	},
 	"keywords": [],
 	"author": "Silberengel",
-    "homepage": "https://gitcitadel.com",
+	"homepage": "https://gitcitadel.com",
 	"license": "MIT",
 	"devDependencies": {
+		"@types/js-yaml": "^4.0.9",
 		"@types/node": "^20.0.0",
 		"@typescript-eslint/eslint-plugin": "5.29.0",
 		"@typescript-eslint/parser": "5.29.0",
-		"@types/js-yaml": "^4.0.9",
 		"builtin-modules": "3.3.0",
 		"esbuild": "0.17.3",
 		"obsidian": "latest",
@@ -24,7 +24,9 @@
 		"typescript": "5.3.3"
 	},
 	"dependencies": {
-		"nostr-tools": "^2.20.0",
-		"js-yaml": "^4.1.0"
+		"@codemirror/lang-yaml": "^6.1.2",
+		"codemirror-asciidoc": "^2.0.1",
+		"js-yaml": "^4.1.0",
+		"nostr-tools": "^2.20.0"
 	}
 }
