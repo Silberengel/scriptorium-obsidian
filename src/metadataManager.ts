@@ -48,7 +48,16 @@ export async function writeMetadata(
 		indent: 2,
 		lineWidth: -1,
 	});
-	await app.vault.adapter.write(metadataPath, yamlContent);
+	
+	// Check if metadata file already exists
+	const existingMetadataFile = app.vault.getAbstractFileByPath(metadataPath);
+	if (existingMetadataFile && existingMetadataFile instanceof TFile) {
+		// Update existing file
+		await app.vault.modify(existingMetadataFile, yamlContent);
+	} else {
+		// Create new file using vault.create() so it shows up in Obsidian
+		await app.vault.create(metadataPath, yamlContent);
+	}
 }
 
 /**

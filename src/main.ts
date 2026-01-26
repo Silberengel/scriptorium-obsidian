@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice } from "obsidian";
+import { Plugin, TFile, TFolder, Notice } from "obsidian";
 import { ScriptoriumSettings, EventKind, EventMetadata, DEFAULT_SETTINGS } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { MetadataModal } from "./ui/metadataModal";
@@ -126,6 +126,51 @@ export default class ScriptoriumPlugin extends Plugin {
 		return false;
 	}
 
+	/**
+	 * Get folder name for an event kind
+	 */
+	private getFolderNameForKind(kind: EventKind): string {
+		switch (kind) {
+			case 1:
+				return "kind-1-notes";
+			case 11:
+				return "kind-11-threads";
+			case 30023:
+				return "kind-30023-articles";
+			case 30040:
+				return "kind-30040-publications";
+			case 30041:
+				return "kind-30041-chapters";
+			case 30817:
+				return "kind-30817-wiki-md";
+			case 30818:
+				return "kind-30818-wiki-adoc";
+		}
+	}
+
+	/**
+	 * Ensure the Nostr notes folder structure exists
+	 */
+	private async ensureNostrNotesFolder(kind: EventKind): Promise<string> {
+		const baseFolder = "Nostr notes";
+		const kindFolder = this.getFolderNameForKind(kind);
+		const fullPath = `${baseFolder}/${kindFolder}`;
+
+		// Check if base folder exists
+		const baseFolderObj = this.app.vault.getAbstractFileByPath(baseFolder);
+		if (!baseFolderObj || !(baseFolderObj instanceof TFolder)) {
+			await this.app.vault.createFolder(baseFolder);
+		}
+
+		// Check if kind folder exists
+		const kindFolderObj = this.app.vault.getAbstractFileByPath(fullPath);
+		if (!kindFolderObj || !(kindFolderObj instanceof TFolder)) {
+			await this.app.vault.createFolder(fullPath);
+		}
+
+		return fullPath;
+	}
+
 	private async getCurrentFile(): Promise<TFile | null> {
 		const activeFile = this.app.workspace.getActiveFile();
 		if (!activeFile) {
@@ -159,6 +204,9 @@ export default class ScriptoriumPlugin extends Plugin {
 			} else if (file.extension === "md") {
 				eventKind = metadata?.kind || this.settings.defaultEventKind;
 			}
+
+			// Ensure folder structure exists before creating events
+			await this.ensureNostrNotesFolder(eventKind);
 
 			// Create default metadata if none exists
 			if (!metadata) {
@@ -332,6 +380,9 @@ export default class ScriptoriumPlugin extends Plugin {
 	private async handleNewDocument() {
 		new NewDocumentModal(this.app, async (kind: EventKind, title: string) => {
 			try {
+				// Ensure folder structure exists
+				const folderPath = await this.ensureNostrNotesFolder(kind);
+
 				// Sanitize filename from title
 				const sanitizedTitle = this.sanitizeFilename(title);
 				
@@ -341,19 +392,9 @@ export default class ScriptoriumPlugin extends Plugin {
 					extension = "adoc";
 				}
 
-				// Get current folder or root
-				const activeFile = this.app.workspace.getActiveFile();
-				let folderPath = "";
-				if (activeFile) {
-					const folder = this.app.vault.getAbstractFileByPath(activeFile.path);
-					if (folder && folder.parent) {
-						folderPath = folder.parent.path;
-					}
-				}
-
-				// Create file path
+				// Create file path in the appropriate folder
 				const filename = `${sanitizedTitle}.${extension}`;
-				const filePath = folderPath ? `${folderPath}/${filename}` : filename;
+				const filePath = `${folderPath}/${filename}`;
 
 				// Check if file already exists
 				const existingFile = this.app.vault.getAbstractFileByPath(filePath);
