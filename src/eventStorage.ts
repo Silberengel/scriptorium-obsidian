@@ -39,8 +39,8 @@ export async function loadEvents(
 			return [];
 		}
 		const content = await app.vault.read(eventsFile);
-		const lines = content.split("\n").filter((line) => line.trim().length > 0);
-		return lines.map((line) => JSON.parse(line) as SignedEvent);
+		const lines = content.split("\n").filter((line: string) => line.trim().length > 0);
+		return lines.map((line: string) => JSON.parse(line) as SignedEvent);
 	} catch (error) {
 		console.error("Error loading events:", error);
 		return [];

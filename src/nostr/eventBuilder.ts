@@ -4,7 +4,7 @@ import { EventKind, EventMetadata, SignedEvent } from "../types";
 /**
  * Normalize secret key from bech32 nsec or hex format to hex
  */
-export function normalizeSecretKey(key: string): string {
+export function normalizeSecretKey(key: string): Uint8Array {
 	if (key.startsWith("nsec")) {
 		try {
 			const decoded = nip19.decode(key);
@@ -17,7 +17,12 @@ export function normalizeSecretKey(key: string): string {
 	}
 	// Assume hex format (64 chars)
 	if (key.length === 64) {
-		return key.toLowerCase();
+		const hex = key.toLowerCase();
+		const bytes = new Uint8Array(32);
+		for (let i = 0; i < 32; i++) {
+			bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+		}
+		return bytes;
 	}
 	throw new Error("Invalid key format. Expected nsec bech32 or 64-char hex string.");
 }
@@ -28,6 +33,13 @@ export function normalizeSecretKey(key: string): string {
 export function getPubkeyFromPrivkey(privkey: string): string {
 	const normalized = normalizeSecretKey(privkey);
 	return getPublicKey(normalized);
+}
+
+/**
+ * Get public key from private key (Uint8Array version)
+ */
+export function getPubkeyFromPrivkeyBytes(privkey: Uint8Array): string {
+	return getPublicKey(privkey);
 }
 
 /**
@@ -185,15 +197,14 @@ export function createSignedEvent(
 	const pubkey = getPublicKey(normalizedKey);
 	const created_at = createdAt || Math.floor(Date.now() / 1000);
 
-	const unsignedEvent = {
+	const eventTemplate = {
 		kind,
-		pubkey,
 		created_at,
 		tags,
 		content,
 	};
 
-	const signedEvent = finalizeEvent(unsignedEvent, normalizedKey);
+	const signedEvent = finalizeEvent(eventTemplate, normalizedKey);
 
 	return {
 		...signedEvent,

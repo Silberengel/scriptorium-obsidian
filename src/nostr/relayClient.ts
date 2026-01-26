@@ -1,4 +1,4 @@
-import { Relay, relayInit } from "nostr-tools";
+import { Relay } from "nostr-tools";
 import { SignedEvent, PublishingResult } from "../types";
 import { ensureAuthenticated, handleAuthRequiredError } from "./authHandler";
 
@@ -14,73 +14,63 @@ export async function publishEventToRelay(
 	let relay: Relay | null = null;
 
 	try {
-		relay = relayInit(relayUrl);
+		relay = new Relay(relayUrl);
 		await relay.connect();
 
 		// Ensure authenticated if needed
 		await ensureAuthenticated(relay, privkey, relayUrl);
 
-		return new Promise((resolve) => {
-			const timer = setTimeout(() => {
-				if (relay) {
-					relay.close();
-				}
-				resolve({
-					eventId: event.id,
-					relay: relayUrl,
-					success: false,
-					message: "Timeout waiting for relay response",
+		// Set up notice handler for auth-required messages
+		const originalOnNotice = relay.onnotice;
+		relay.onnotice = (notice: string) => {
+			if (notice.includes("auth-required")) {
+				handleAuthRequiredError(relay!, privkey, relayUrl, async () => {
+					return await relay!.publish(event);
+				}).catch((error) => {
+					console.error("Auth failed:", error);
 				});
-			}, timeout);
+			}
+			if (originalOnNotice) {
+				originalOnNotice(notice);
+			}
+		};
 
-			const publishPromise = new Promise<PublishingResult>((innerResolve) => {
-				relay!.on("ok", (ok) => {
-					if (ok.id === event.id) {
-						clearTimeout(timer);
-						relay?.close();
-						innerResolve({
-							eventId: event.id,
-							relay: relayUrl,
-							success: ok.ok,
-							message: ok.message || undefined,
-						});
-					}
-				});
+		// Publish event - returns a promise that resolves with the reason string
+		// The reason indicates success (e.g., "seen", "duplicate") or failure
+		try {
+			const reason = await Promise.race([
+				relay.publish(event),
+				new Promise<string>((resolve) => {
+					setTimeout(() => resolve("timeout"), timeout);
+				}),
+			]);
 
-				relay!.on("error", (error) => {
-					clearTimeout(timer);
-					relay?.close();
-					innerResolve({
-						eventId: event.id,
-						relay: relayUrl,
-						success: false,
-						message: error.message || "Relay error",
-					});
-				});
+			relay.close();
 
-				// Handle auth-required errors
-				relay!.on("notice", (notice) => {
-					if (notice.includes("auth-required")) {
-						handleAuthRequiredError(relay!, privkey, relayUrl, async () => {
-							relay!.publish(event);
-						}).catch((error) => {
-							clearTimeout(timer);
-							relay?.close();
-							innerResolve({
-								eventId: event.id,
-								relay: relayUrl,
-								success: false,
-								message: `Auth failed: ${error.message}`,
-							});
-						});
-					}
-				});
+			// Check if publish was successful
+			// Reasons like "seen", "duplicate", "broadcast" indicate success
+			// "blocked", "invalid", etc. indicate failure
+			const success = reason !== "timeout" && 
+				!reason.toLowerCase().includes("error") &&
+				!reason.toLowerCase().includes("blocked") &&
+				!reason.toLowerCase().includes("invalid") &&
+				!reason.toLowerCase().includes("restricted");
 
-				relay!.publish(event);
-			});
-
-			publishPromise.then(resolve);
-		});
+			return {
+				eventId: event.id,
+				relay: relayUrl,
+				success,
+				message: success ? undefined : reason,
+			};
+		} catch (error: any) {
+			relay.close();
+			return {
+				eventId: event.id,
+				relay: relayUrl,
+				success: false,
+				message: error.message || "Publish failed",
+			};
+		}
 	} catch (error: any) {
 		if (relay) {
 			relay.close();

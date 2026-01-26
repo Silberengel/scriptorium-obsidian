@@ -102,10 +102,11 @@ export async function buildAsciiDocEvents(
 			}
 
 			// Now build this index event with references to children
+			const baseMetadata = node.metadata as Kind30040Metadata;
 			const indexMetadata: Kind30040Metadata = {
+				...baseMetadata,
 				kind: 30040,
 				title: node.title,
-				...(node.metadata as Kind30040Metadata),
 			};
 
 			const tags = buildTagsFromMetadata(indexMetadata, pubkey, childEvents);

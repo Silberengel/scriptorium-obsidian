@@ -1,5 +1,6 @@
-import { Relay, relayInit, getPublicKey } from "nostr-tools";
+import { Relay, getPublicKey } from "nostr-tools";
 import { RelayInfo } from "./types";
+import { normalizeSecretKey } from "./nostr/eventBuilder";
 
 /**
  * Default relay URLs to query for kind 10002
@@ -60,7 +61,7 @@ export async function fetchRelayListFromRelay(
 		}, timeout);
 
 		try {
-			relay = relayInit(relayUrl);
+			relay = new Relay(relayUrl);
 			await relay.connect();
 
 			const sub = relay.subscribe(

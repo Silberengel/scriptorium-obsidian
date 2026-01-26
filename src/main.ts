@@ -12,7 +12,7 @@ import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { normalizeSecretKey, getPubkeyFromPrivkey } from "./nostr/eventBuilder";
 
 export default class ScriptoriumPlugin extends Plugin {
-	settings: ScriptoriumSettings;
+	settings!: ScriptoriumSettings;
 
 	async onload() {
 		await this.loadSettings();

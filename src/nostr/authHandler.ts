@@ -12,49 +12,14 @@ export async function handleAuthChallenge(
 ): Promise<boolean> {
 	try {
 		const normalizedKey = normalizeSecretKey(privkey);
-		const pubkey = getPublicKey(normalizedKey);
 
-		// Create kind 22242 AUTH event
-		const authEvent = finalizeEvent(
-			{
-				kind: 22242,
-				pubkey,
-				created_at: Math.floor(Date.now() / 1000),
-				tags: [
-					["relay", relayUrl],
-					["challenge", challenge],
-				],
-				content: "",
-			},
-			normalizedKey
-		);
-
-		// Send AUTH event
-		return new Promise((resolve) => {
-			const timeout = setTimeout(() => {
-				resolve(false);
-			}, 10000);
-
-			relay.on("ok", (ok) => {
-				if (ok.id === authEvent.id && ok.ok) {
-					clearTimeout(timeout);
-					resolve(true);
-				}
-			});
-
-			relay.on("error", () => {
-				clearTimeout(timeout);
-				resolve(false);
-			});
-
-			relay.send(["AUTH", authEvent]);
-
-			// Also listen for OK message directly
-			setTimeout(() => {
-				clearTimeout(timeout);
-				resolve(false);
-			}, 5000);
+		// Use relay.auth() method which handles the AUTH flow
+		// auth() returns a promise that resolves with a string (challenge response)
+		// We consider it successful if it doesn't throw
+		await relay.auth(async (eventTemplate) => {
+			return finalizeEvent(eventTemplate, normalizedKey);
 		});
+		return true;
 	} catch (error) {
 		console.error("Error handling AUTH challenge:", error);
 		return false;
@@ -69,34 +34,21 @@ export async function ensureAuthenticated(
 	privkey: string,
 	relayUrl: string
 ): Promise<boolean> {
-	return new Promise((resolve) => {
-		let challengeReceived = false;
-		let authHandled = false;
+	try {
+		const normalizedKey = normalizeSecretKey(privkey);
+		
+		// Set up auth handler if relay sends challenge
+		relay.onauth = async (eventTemplate) => {
+			return finalizeEvent(eventTemplate, normalizedKey);
+		};
 
-		const timeout = setTimeout(() => {
-			if (!authHandled) {
-				resolve(true); // Assume no AUTH required if no challenge received
-			}
-		}, 2000);
-
-		// Listen for AUTH challenge
-		relay.on("auth", async (challenge: string) => {
-			challengeReceived = true;
-			clearTimeout(timeout);
-			const success = await handleAuthChallenge(relay, challenge, privkey, relayUrl);
-			authHandled = true;
-			resolve(success);
-		});
-
-		// If no challenge received within timeout, assume no AUTH required
-		setTimeout(() => {
-			if (!challengeReceived) {
-				clearTimeout(timeout);
-				authHandled = true;
-				resolve(true);
-			}
-		}, 2000);
-	});
+		// Try to authenticate - this will only run if relay requires it
+		// The relay will call onauth if it needs authentication
+		return true;
+	} catch (error) {
+		console.error("Error ensuring authentication:", error);
+		return false;
+	}
 }
 
 /**
@@ -108,12 +60,17 @@ export async function handleAuthRequiredError(
 	relayUrl: string,
 	originalOperation: () => Promise<any>
 ): Promise<any> {
-	// Try to authenticate
-	const authenticated = await ensureAuthenticated(relay, privkey, relayUrl);
-	if (!authenticated) {
-		throw new Error("Failed to authenticate with relay");
-	}
+	try {
+		const normalizedKey = normalizeSecretKey(privkey);
+		
+		// Authenticate using relay.auth()
+		await relay.auth(async (eventTemplate) => {
+			return finalizeEvent(eventTemplate, normalizedKey);
+		});
 
-	// Retry original operation
-	return originalOperation();
+		// Retry original operation
+		return originalOperation();
+	} catch (error: any) {
+		throw new Error(`Failed to authenticate with relay: ${error.message}`);
+	}
 }
