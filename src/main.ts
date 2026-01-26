@@ -3,6 +3,7 @@ import { ScriptoriumSettings, EventKind, EventMetadata, DEFAULT_SETTINGS } from 
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { MetadataModal } from "./ui/metadataModal";
 import { StructurePreviewModal } from "./ui/structurePreviewModal";
+import { NewDocumentModal } from "./ui/newDocumentModal";
 import { readMetadata, writeMetadata, createDefaultMetadata, validateMetadata, mergeWithHeaderTitle } from "./metadataManager";
 import { buildEvents } from "./eventManager";
 import { saveEvents, loadEvents, eventsFileExists } from "./eventStorage";
@@ -45,6 +46,17 @@ export default class ScriptoriumPlugin extends Plugin {
 			id: "edit-metadata",
 			name: "Edit Metadata",
 			callback: () => this.handleEditMetadata(),
+		});
+
+		this.addCommand({
+			id: "new-nostr-document",
+			name: "New Nostr Document",
+			callback: () => this.handleNewDocument(),
+		});
+
+		// Add ribbon icon for creating new documents
+		this.addRibbonIcon("file-plus", "New Nostr Document", () => {
+			this.handleNewDocument();
 		});
 
 		// Status bar
@@ -315,5 +327,98 @@ export default class ScriptoriumPlugin extends Plugin {
 			new Notice(`Error editing metadata: ${safeMessage}`);
 			safeConsoleError("Error editing metadata:", error);
 		}
+	}
+
+	private async handleNewDocument() {
+		new NewDocumentModal(this.app, async (kind: EventKind, title: string) => {
+			try {
+				// Sanitize filename from title
+				const sanitizedTitle = this.sanitizeFilename(title);
+				
+				// Determine file extension based on kind
+				let extension = "md";
+				if (kind === 30040 || kind === 30041 || kind === 30818) {
+					extension = "adoc";
+				}
+
+				// Get current folder or root
+				const activeFile = this.app.workspace.getActiveFile();
+				let folderPath = "";
+				if (activeFile) {
+					const folder = this.app.vault.getAbstractFileByPath(activeFile.path);
+					if (folder && folder.parent) {
+						folderPath = folder.parent.path;
+					}
+				}
+
+				// Create file path
+				const filename = `${sanitizedTitle}.${extension}`;
+				const filePath = folderPath ? `${folderPath}/${filename}` : filename;
+
+				// Check if file already exists
+				const existingFile = this.app.vault.getAbstractFileByPath(filePath);
+				if (existingFile) {
+					new Notice(`File ${filename} already exists`);
+					return;
+				}
+
+				// Create default content based on kind
+				let content = "";
+				if (kind === 30040) {
+					// AsciiDoc document header for 30040
+					content = `= ${title}\n\n`;
+				} else if (kind === 30023 || kind === 30817 || kind === 30818) {
+					// Add title as heading for other kinds that require title
+					if (kind === 30817 || kind === 30818) {
+						content = `# ${title}\n\n`;
+					} else {
+						content = `# ${title}\n\n`;
+					}
+				}
+
+				// Create the file
+				const file = await this.app.vault.create(filePath, content);
+
+				// Create metadata
+				const metadata = createDefaultMetadata(kind);
+				if (metadata.title === "" && title) {
+					(metadata as any).title = title;
+				}
+				await writeMetadata(file, metadata, this.app);
+
+				// Open the new file
+				await this.app.workspace.openLinkText(filePath, "", true);
+
+				new Notice(`Created ${filename} with metadata`);
+			} catch (error: any) {
+				const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+				new Notice(`Error creating document: ${safeMessage}`);
+				safeConsoleError("Error creating document:", error);
+			}
+		}).open();
+	}
+
+	/**
+	 * Sanitize a string to be used as a filename
+	 */
+	private sanitizeFilename(title: string): string {
+		// Remove or replace invalid filename characters
+		let sanitized = title
+			.replace(/[<>:"/\\|?*]/g, "-") // Replace invalid chars with dash
+			.replace(/\s+/g, "-") // Replace spaces with dash
+			.replace(/-+/g, "-") // Replace multiple dashes with single
+			.replace(/^-+|-+$/g, ""); // Remove leading/trailing dashes
+
+		// Limit length
+		if (sanitized.length > 100) {
+			sanitized = sanitized.substring(0, 100);
+		}
+
+		// Ensure it's not empty
+		if (!sanitized) {
+			sanitized = "untitled";
+		}
+
+		return sanitized;
 	}
 }
