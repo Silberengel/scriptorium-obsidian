@@ -2,6 +2,7 @@ import { Relay } from "nostr-tools";
 import { SignedEvent, PublishingResult } from "../types";
 import { ensureAuthenticated, handleAuthRequiredError } from "./authHandler";
 import { safeConsoleError } from "../utils/security";
+import { deduplicateRelayUrls, normalizeRelayUrl } from "../relayManager";
 
 /**
  * Publish a single event to a relay
@@ -118,11 +119,18 @@ export async function publishEventsWithRetry(
 	privkey: string,
 	maxRetries: number = 3
 ): Promise<PublishingResult[][]> {
+	// Normalize and deduplicate relay URLs before publishing
+	const normalizedUrls = deduplicateRelayUrls(relayUrls.map(url => normalizeRelayUrl(url)));
+	
+	if (normalizedUrls.length === 0) {
+		return [];
+	}
+	
 	let attempts = 0;
 	let results: PublishingResult[][] = [];
 
 	while (attempts < maxRetries) {
-		results = await publishEventsToRelays(relayUrls, events, privkey);
+		results = await publishEventsToRelays(normalizedUrls, events, privkey);
 		
 		// Check if all events succeeded on at least one relay
 		const allSucceeded = results.some((relayResults) =>

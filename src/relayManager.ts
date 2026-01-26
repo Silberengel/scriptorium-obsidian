@@ -29,7 +29,7 @@ export function parseRelayList(event: any): RelayInfo[] {
 
 	for (const tag of event.tags) {
 		if (tag[0] === "r" && tag[1]) {
-			const url = tag[1];
+			const url = normalizeRelayUrl(tag[1]);
 			const read = tag.length > 2 ? tag[2] === "read" || tag[2] === undefined : true;
 			const write = tag.length > 2 ? tag[2] === "write" || tag[2] === undefined : true;
 			
@@ -77,7 +77,8 @@ export async function fetchRelayListFromRelay(
 						clearTimeout(timer);
 						relay?.close();
 						const relayList = parseRelayList(event);
-						resolve(relayList.length > 0 ? relayList : null);
+						const normalized = normalizeRelayList(relayList);
+						resolve(normalized.length > 0 ? normalized : null);
 					},
 					oneose: () => {
 						clearTimeout(timer);
@@ -123,10 +124,10 @@ export async function fetchRelayList(
 		}
 	}
 
-	// If none found, return default fallback
+	// If none found, return default fallback (normalized)
 	return [
 		{
-			url: DEFAULT_FALLBACK_RELAY,
+			url: normalizeRelayUrl(DEFAULT_FALLBACK_RELAY),
 			read: true,
 			write: true,
 		},
@@ -134,17 +135,82 @@ export async function fetchRelayList(
 }
 
 /**
- * Get write relays from relay list
+ * Normalize a relay URL
+ * - Removes trailing slashes
+ * - Ensures lowercase
+ * - Validates wss:// or ws:// protocol
  */
-export function getWriteRelays(relayList: RelayInfo[]): string[] {
-	return relayList.filter((r) => r.write).map((r) => r.url);
+export function normalizeRelayUrl(url: string): string {
+	if (!url) return url;
+	
+	let normalized = url.trim().toLowerCase();
+	
+	// Remove trailing slashes
+	normalized = normalized.replace(/\/+$/, "");
+	
+	// Ensure protocol is present
+	if (!normalized.startsWith("wss://") && !normalized.startsWith("ws://")) {
+		// Default to wss:// if no protocol
+		normalized = "wss://" + normalized;
+	}
+	
+	return normalized;
 }
 
 /**
- * Get read relays from relay list
+ * Deduplicate relay URLs by normalizing and comparing
+ */
+export function deduplicateRelayUrls(urls: string[]): string[] {
+	const seen = new Set<string>();
+	const unique: string[] = [];
+	
+	for (const url of urls) {
+		const normalized = normalizeRelayUrl(url);
+		if (!seen.has(normalized)) {
+			seen.add(normalized);
+			unique.push(normalized);
+		}
+	}
+	
+	return unique;
+}
+
+/**
+ * Normalize and deduplicate relay list
+ */
+export function normalizeRelayList(relayList: RelayInfo[]): RelayInfo[] {
+	const seen = new Set<string>();
+	const normalized: RelayInfo[] = [];
+	
+	for (const relay of relayList) {
+		const normalizedUrl = normalizeRelayUrl(relay.url);
+		if (!seen.has(normalizedUrl)) {
+			seen.add(normalizedUrl);
+			normalized.push({
+				url: normalizedUrl,
+				read: relay.read,
+				write: relay.write,
+			});
+		}
+	}
+	
+	return normalized;
+}
+
+/**
+ * Get write relays from relay list (normalized and deduplicated)
+ */
+export function getWriteRelays(relayList: RelayInfo[]): string[] {
+	const writeRelays = relayList.filter((r) => r.write).map((r) => r.url);
+	return deduplicateRelayUrls(writeRelays);
+}
+
+/**
+ * Get read relays from relay list (normalized and deduplicated)
  */
 export function getReadRelays(relayList: RelayInfo[]): string[] {
-	return relayList.filter((r) => r.read).map((r) => r.url);
+	const readRelays = relayList.filter((r) => r.read).map((r) => r.url);
+	return deduplicateRelayUrls(readRelays);
 }
 
 /**
@@ -162,12 +228,12 @@ export function addTheCitadelIfMissing(relayList: RelayInfo[]): RelayInfo[] {
 		return relayList;
 	}
 
-	return [
+	return normalizeRelayList([
 		...relayList,
 		{
-			url: DEFAULT_FALLBACK_RELAY,
+			url: normalizeRelayUrl(DEFAULT_FALLBACK_RELAY),
 			read: true,
 			write: true,
 		},
-	];
+	]);
 }

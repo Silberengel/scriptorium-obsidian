@@ -256,6 +256,7 @@ export default class ScriptoriumPlugin extends Plugin {
 				return;
 			}
 
+			// Relays are already normalized and deduplicated by getWriteRelays
 			new Notice(`Publishing ${events.length} event(s) to ${writeRelays.length} relay(s)...`);
 
 			const results = await publishEventsWithRetry(writeRelays, events, this.settings.privateKey);

@@ -1,7 +1,7 @@
 import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import ScriptoriumPlugin from "../main";
 import { EventKind } from "../types";
-import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel, getReadRelays } from "../relayManager";
+import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel, getReadRelays, normalizeRelayUrl, normalizeRelayList } from "../relayManager";
 import { getPubkeyFromPrivkey, getNpubFromPrivkey } from "../nostr/eventBuilder";
 import { fetchUserProfile } from "../nostr/profileFetcher";
 
@@ -240,8 +240,9 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							if (this.plugin.settings.suggestTheCitadel && !includesTheCitadel(relayList)) {
 								finalList = addTheCitadelIfMissing(relayList);
 							}
-
-							this.plugin.settings.relayList = finalList;
+							
+							// Normalize and deduplicate before saving
+							this.plugin.settings.relayList = normalizeRelayList(finalList);
 							await this.plugin.saveSettings();
 							await this.display();
 						} catch (error: any) {
@@ -290,12 +291,15 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 						const input = button.buttonEl.previousElementSibling as HTMLInputElement;
 						const url = input.value.trim();
 						if (url) {
-							if (!this.plugin.settings.relayList.some((r) => r.url === url)) {
+							const normalizedUrl = normalizeRelayUrl(url);
+							if (!this.plugin.settings.relayList.some((r) => normalizeRelayUrl(r.url) === normalizedUrl)) {
 								this.plugin.settings.relayList.push({
-									url,
+									url: normalizedUrl,
 									read: true,
 									write: true,
 								});
+								// Normalize and deduplicate the entire list
+								this.plugin.settings.relayList = normalizeRelayList(this.plugin.settings.relayList);
 								await this.plugin.saveSettings();
 								await this.display();
 							}
