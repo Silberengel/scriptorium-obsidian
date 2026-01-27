@@ -241,15 +241,31 @@ export default class ScriptoriumPlugin extends Plugin {
 					// Continue anyway - file was created
 				}
 
-				// For .adoc files, ensure file is visible in explorer but don't auto-open
+				// For .adoc files, try to auto-open after a longer delay to allow obsidian-asciidoc plugin to initialize
 				if (file.extension === "adoc" || file.extension === "asciidoc") {
 					log(`AsciiDoc file created: ${file.path}`);
 					
-					// File should be visible in Obsidian's file explorer automatically
-					// since we used vault.create(). The file explorer will refresh automatically.
-					// We don't auto-open to prevent crashes (obsidian-asciidoc plugin handles opening)
+					// Wait longer for obsidian-asciidoc plugin to be ready
+					await new Promise(resolve => setTimeout(resolve, 500));
 					
-					new Notice(`Created ${filename} in ${folderPath}. Install obsidian-asciidoc plugin to edit in Obsidian.`);
+					try {
+						log(`Attempting to open AsciiDoc file: ${file.path}`);
+						const leaf = this.app.workspace.getMostRecentLeaf();
+						if (leaf && leaf.view) {
+							await leaf.openFile(file, { active: true });
+							log("AsciiDoc file opened successfully");
+							new Notice(`Created and opened ${filename}`);
+						} else {
+							const newLeaf = this.app.workspace.getLeaf("tab");
+							await newLeaf.openFile(file, { active: true });
+							log("AsciiDoc file opened in new leaf");
+							new Notice(`Created and opened ${filename}`);
+						}
+					} catch (error: any) {
+						logError("Error opening AsciiDoc file", error);
+						// Don't show error to user - file was created successfully
+						new Notice(`Created ${filename} in ${folderPath}. You may need to open it manually.`);
+					}
 				} else {
 					// Open the new file in Obsidian workspace (use active leaf or create new)
 					// Use a small delay to ensure file is fully created before opening

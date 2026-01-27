@@ -365,10 +365,14 @@ export async function writeMetadata(
 			const { body } = parseMarkdownFrontmatter(currentContent);
 			const frontmatter = formatMarkdownFrontmatter(metadata);
 			
-			// If body is empty or only whitespace, add default content
+			// If body is empty, only whitespace, or only contains a single header line, add default content
 			const trimmedBody = body.trim();
+			// Check if body only contains a single header line (e.g., "# Title" or "## Title")
+			// Split by newlines and filter out empty lines to count non-empty lines
+			const nonEmptyLines = trimmedBody.split('\n').filter(line => line.trim().length > 0);
+			const isOnlyHeader = trimmedBody && nonEmptyLines.length === 1 && /^#+\s+.+$/.test(nonEmptyLines[0]);
 			let finalBody = body;
-			if (!trimmedBody || trimmedBody.length === 0) {
+			if (!trimmedBody || trimmedBody.length === 0 || isOnlyHeader) {
 				// For kind 1, just add placeholder text (no header)
 				if (metadata.kind === 1) {
 					finalBody = `place your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays`;
