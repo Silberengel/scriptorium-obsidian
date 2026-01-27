@@ -23,7 +23,7 @@ export class MetadataReminderModal extends Modal {
 		const infoDiv = contentEl.createDiv({ cls: "scriptorium-reminder-info" });
 		
 		infoDiv.createEl("p", {
-			text: "Please update the metadata in your file before creating events:",
+			text: "Before creating events, update the metadata in your file:",
 		});
 
 		const list = infoDiv.createEl("ul");
@@ -33,25 +33,25 @@ export class MetadataReminderModal extends Modal {
 		
 		if (requiresTitle) {
 			const titleItem = list.createEl("li");
-			titleItem.createEl("strong", { text: "Title is mandatory" });
-			titleItem.createEl("span", { text: " - Update the title field in the frontmatter/attributes" });
+			titleItem.createEl("strong", { text: "Title is required" });
+			titleItem.createEl("span", { text: " - Set the title field in frontmatter/attributes" });
 		}
 
 		list.createEl("li", {
-			text: "Review all metadata fields in the frontmatter (Markdown) or header attributes (AsciiDoc)",
+			text: "Review all metadata fields (shown with placeholder descriptions)",
 		});
 
 		list.createEl("li", {
-			text: "Remove or update any placeholder descriptions you don't want to use",
+			text: "Remove placeholders you don't need, or replace them with actual values",
 		});
 
 		list.createEl("li", {
-			text: "Add any custom tags you need",
+			text: "Add custom tags if needed",
 		});
 
 		const noteDiv = contentEl.createDiv({ cls: "scriptorium-reminder-note" });
 		noteDiv.createEl("p", {
-			text: "Note: Placeholder values (descriptions) will be automatically skipped when creating events.",
+			text: "Note: Placeholder descriptions are automatically skipped when creating events.",
 		});
 
 		// Buttons

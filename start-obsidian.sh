@@ -9,65 +9,37 @@ set -e  # Exit on error
 # Function to show help
 show_help() {
     cat << EOF
-Scriptorium Obsidian Plugin - Startup Script
+Scriptorium Nostr - Obsidian Plugin Startup Script
 
 USAGE:
-    $0 [OPTIONS] [path-to-obsidian-vault]
+    $0 [OPTIONS] [vault-path]
 
 OPTIONS:
-    -h, --help      Show this help message and exit
-    --generate-key  Generate a new Nostr private key
-                    The key will be shown for you to save as an environment variable
-                    (most secure option - hides key from GUI)
+    -h, --help          Show this help message
+    --generate-key      Generate a new Nostr private key
 
 ARGUMENTS:
-    path-to-obsidian-vault
-                    Path to your Obsidian vault (the folder containing .obsidian)
-                    Required on first run. Optional on subsequent runs.
-                    Note: The .obsidian folder may be hidden in your file manager.
+    vault-path          Path to your Obsidian vault folder
+                        Required on first run, optional afterwards
 
 EXAMPLES:
-    # First run (path required):
-    $0 ~/Documents/MyVault
+    $0 ~/Documents/MyVault          # First run
+    $0                              # Use saved vault path
+    $0 --generate-key               # Generate new Nostr key
+    $0 --help                       # Show this help
 
-    # Subsequent runs (uses saved path):
-    $0
-
-    # Change to a different vault:
-    $0 ~/Documents/NewVault
-
-    # Generate a new Nostr private key:
-    $0 --generate-key [vault-path]
-
-    # Show help:
-    $0 --help
-
-DESCRIPTION:
-    This script will:
-    1. Install npm dependencies (if needed)
-    2. Build the Scriptorium plugin
-    3. Install it to your Obsidian vault's plugin folder
-    4. Install and enable the obsidian-asciidoc plugin (required for .adoc files)
-    5. Start Obsidian with console logging enabled
-    
-    Note: The obsidian-asciidoc plugin is required for this plugin to work properly
-    with .adoc files. It will be installed and enabled automatically.
-
-    On first run, you must provide the vault path. The path will be saved
-    to .scriptorium-vault-path for future use.
-
-    If the saved path becomes invalid (vault moved/deleted), you'll be
-    prompted to provide a new path.
-
-    The obsidian-asciidoc plugin is recommended for editing .adoc files
-    in Obsidian without crashes. It provides proper syntax highlighting
-    and editing support.
+WHAT THIS SCRIPT DOES:
+    1. Installs npm dependencies (if needed)
+    2. Builds the Scriptorium plugin
+    3. Installs plugin to your vault
+    4. Installs obsidian-asciidoc plugin (for .adoc files)
+    5. Starts Obsidian with console logging
 
 NOTES:
-    - The vault path is the folder containing the .obsidian directory
-    - The .obsidian folder may be hidden in your file manager (enable "Show hidden files")
-    - Plugin logs will appear in this terminal
-    - Press Ctrl+C to stop Obsidian
+    • Vault path is saved after first run
+    • obsidian-asciidoc is installed automatically
+    • Plugin logs appear in this terminal
+    • Press Ctrl+C to stop Obsidian
 EOF
     exit 0
 }
@@ -185,22 +157,13 @@ NODE_SCRIPT
     echo "Generated new Nostr key:"
     echo "  Public key (npub): $npub"
     echo ""
-    echo "To use this key, set it as an environment variable:"
+    echo "To use this key, add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
     echo ""
     echo "  export SCRIPTORIUM_OBSIDIAN_KEY=\"$nsec\""
     echo ""
-    echo "Add this line to your shell profile (~/.bashrc, ~/.zshrc, etc.) to make it permanent:"
-    echo "  export SCRIPTORIUM_OBSIDIAN_KEY=\"$nsec\""
+    echo "Then restart your shell or run: source ~/.bashrc"
     echo ""
-    echo "Then launch Obsidian from that terminal (or restart your shell) to use the key, by typing 'obsidian' or './start-obsidian.sh'."
-    echo ""
-    echo "Note: The private key is hidden from the GUI for security. Only the public key (npub) is shown."
-    echo "To view the private key, you can use the following command:"
-    echo ""
-    echo "  echo $nsec"
-    echo ""
-    echo "This will show the private key in clear text."
-    echo "Remember: The private key is only visible in the terminal and will not be available, unless you save it as an environment variable. Do not share it with anyone!"
+    echo "⚠️  Keep your private key secure! Do not share it with anyone."
 }
 
 # If generating key, handle it separately (no vault path needed)
@@ -231,9 +194,8 @@ if [ -n "$1" ]; then
     
     # Validate provided path
     if ! is_valid_vault_path "$VAULT_PATH"; then
-        echo "Error: The provided path does not appear to be valid: $VAULT_PATH"
-        echo "Please provide a valid path to your Obsidian vault"
-        echo "Note: The .obsidian folder may be hidden in your file manager."
+        echo "Error: Invalid vault path: $VAULT_PATH"
+        echo "Please provide a valid path to your Obsidian vault folder"
         exit 1
     fi
     
@@ -252,28 +214,20 @@ else
         else
             echo "Error: Saved vault path is no longer valid: $SAVED_PATH"
             echo ""
-            echo "The vault may have been moved or deleted. Please provide a new vault path:"
+            echo "Please provide a new vault path:"
+            echo "  $0 ~/Documents/MyVault"
             echo ""
-            echo "Usage: $0 <path-to-obsidian-vault>"
-            echo "Example: $0 ~/Documents/MyVault"
-            echo ""
-            echo "Note: The .obsidian folder may be hidden in your file manager."
-            echo "For more information, run: $0 --help"
+            echo "Run '$0 --help' for more information"
             exit 1
         fi
     else
-        echo "Error: No vault path provided and no saved path found"
+        echo "Error: No vault path provided"
         echo ""
-        echo "This appears to be your first run. Please provide the path to your Obsidian vault:"
+        echo "First run requires a vault path:"
+        echo "  $0 ~/Documents/MyVault"
         echo ""
-        echo "Usage: $0 <path-to-obsidian-vault>"
-        echo "Example: $0 ~/Documents/MyVault"
-        echo ""
-        echo "The vault path is the folder containing the .obsidian directory."
-        echo "Note: The .obsidian folder may be hidden in your file manager (enable 'Show hidden files')."
-        echo "After the first run, the path will be saved and you won't need to provide it again."
-        echo ""
-        echo "For more information, run: $0 --help"
+        echo "The path will be saved for future runs."
+        echo "Run '$0 --help' for more information"
         exit 1
     fi
 fi
@@ -295,38 +249,23 @@ echo "[Scriptorium] Plugin folder: $PLUGIN_FOLDER"
 
 # Check if npm dependencies need to be installed
 if [ ! -d "node_modules" ] || [ "package.json" -nt "node_modules" ]; then
-    echo "[Scriptorium] Installing npm dependencies..."
-    npm install
+    echo "Installing dependencies..."
+    npm install --silent
     if [ $? -ne 0 ]; then
         echo "Error: npm install failed"
         exit 1
     fi
-    echo "[Scriptorium] Dependencies installed successfully"
+    echo "✓ Dependencies installed"
 else
-    echo "[Scriptorium] Dependencies are up to date"
+    echo "✓ Dependencies up to date"
 fi
 
-# Create .obsidian folder if it doesn't exist
-if [ ! -d "$OBSIDIAN_FOLDER" ]; then
-    echo "[Scriptorium] Creating .obsidian folder..."
-    mkdir -p "$OBSIDIAN_FOLDER"
-fi
-
-# Create plugins folder if it doesn't exist
-if [ ! -d "${OBSIDIAN_FOLDER}/plugins" ]; then
-    echo "[Scriptorium] Creating plugins folder..."
-    mkdir -p "${OBSIDIAN_FOLDER}/plugins"
-fi
-
-# Create plugin directory if it doesn't exist
-if [ ! -d "$PLUGIN_FOLDER" ]; then
-    echo "[Scriptorium] Creating plugin directory..."
-    mkdir -p "$PLUGIN_FOLDER"
-fi
+# Create necessary directories
+mkdir -p "$PLUGIN_FOLDER"
 
 # Build the plugin
-echo "[Scriptorium] Building plugin..."
-npm run build
+echo "Building plugin..."
+npm run build --silent 2>&1 | grep -v "^$" || true
 
 # Check if build was successful
 if [ ! -f "main.js" ] || [ ! -f "manifest.json" ]; then
@@ -334,41 +273,10 @@ if [ ! -f "main.js" ] || [ ! -f "manifest.json" ]; then
     exit 1
 fi
 
-# Function to check if file needs to be copied
-needs_copy() {
-    local source_file="$1"
-    local dest_file="$2"
-    
-    # If destination doesn't exist, we need to copy
-    if [ ! -f "$dest_file" ]; then
-        return 0  # true - needs copy
-    fi
-    
-    # If source is newer than destination, we need to copy
-    if [ "$source_file" -nt "$dest_file" ]; then
-        return 0  # true - needs copy
-    fi
-    
-    return 1  # false - no copy needed
-}
-
-# Copy main.js if needed
-if needs_copy "main.js" "${PLUGIN_FOLDER}/main.js"; then
-    echo "[Scriptorium] Copying main.js to plugin folder..."
-    cp "main.js" "${PLUGIN_FOLDER}/main.js"
-else
-    echo "[Scriptorium] main.js is up to date, skipping copy"
-fi
-
-# Copy manifest.json if needed
-if needs_copy "manifest.json" "${PLUGIN_FOLDER}/manifest.json"; then
-    echo "[Scriptorium] Copying manifest.json to plugin folder..."
-    cp "manifest.json" "${PLUGIN_FOLDER}/manifest.json"
-else
-    echo "[Scriptorium] manifest.json is up to date, skipping copy"
-fi
-
-echo "[Scriptorium] Plugin installed successfully!"
+# Copy plugin files
+cp "main.js" "${PLUGIN_FOLDER}/main.js"
+cp "manifest.json" "${PLUGIN_FOLDER}/manifest.json"
+echo "✓ Plugin installed"
 
 # Function to enable a plugin in Obsidian
 enable_plugin() {
@@ -382,7 +290,6 @@ enable_plugin() {
     
     # Check if plugin is already enabled
     if grep -q "\"$plugin_id\"" "$plugins_json" 2>/dev/null; then
-        echo "[Scriptorium] Plugin $plugin_id is already enabled"
         return 0
     fi
     
@@ -408,10 +315,8 @@ if (!plugins.includes('${plugin_id}')) {
     console.log('Enabled plugin: ${plugin_id}');
 }
 NODE_SCRIPT
-        if [ $? -eq 0 ]; then
-            echo "[Scriptorium] Enabled plugin: $plugin_id"
-        else
-            echo "[Scriptorium] Warning: Could not enable plugin $plugin_id automatically"
+        if [ $? -ne 0 ]; then
+            echo "Warning: Could not enable plugin $plugin_id automatically"
         fi
     elif command -v python3 &> /dev/null; then
         # Fallback to Python
@@ -433,124 +338,92 @@ if plugin_id not in plugins:
         json.dump(plugins, f, indent=2)
     print(f'Enabled plugin: {plugin_id}')
 PYTHON_SCRIPT
-        if [ $? -eq 0 ]; then
-            echo "[Scriptorium] Enabled plugin: $plugin_id"
-        else
-            echo "[Scriptorium] Warning: Could not enable plugin $plugin_id automatically"
+        if [ $? -ne 0 ]; then
+            echo "Warning: Could not enable plugin $plugin_id automatically"
         fi
     else
-        echo "[Scriptorium] Warning: Node.js or Python3 required to auto-enable plugins"
-        echo "[Scriptorium] Please enable $plugin_id manually in Obsidian settings"
+        echo "Warning: Node.js or Python3 required to auto-enable plugins"
+        echo "Please enable $plugin_id manually in Obsidian settings"
     fi
 }
 
 # Enable scriptorium-obsidian plugin
-echo "[Scriptorium] Enabling scriptorium-obsidian plugin..."
-enable_plugin "scriptorium-obsidian"
+enable_plugin "scriptorium-obsidian" > /dev/null 2>&1
 
 # Install obsidian-asciidoc plugin (required for .adoc file support)
 ASCIIDOC_PLUGIN_DIR="${OBSIDIAN_FOLDER}/plugins/obsidian-asciidoc"
 ASCIIDOC_PLUGIN_REPO="https://github.com/dzruyk/obsidian-asciidoc.git"
 
-echo "[Scriptorium] Installing obsidian-asciidoc plugin (required for .adoc files)..."
+echo "Installing obsidian-asciidoc plugin..."
 
 if [ -d "$ASCIIDOC_PLUGIN_DIR" ]; then
-    echo "[Scriptorium] obsidian-asciidoc plugin already exists, updating..."
     cd "$ASCIIDOC_PLUGIN_DIR"
     if [ -d ".git" ]; then
-        git pull || echo "[Scriptorium] Warning: Could not update plugin (git pull failed)"
-        # Rebuild after update
+        git pull --quiet 2>/dev/null || true
         if [ -f "package.json" ]; then
-            echo "[Scriptorium] Rebuilding obsidian-asciidoc plugin..."
-            npm install && npm run build || {
-                echo "[Scriptorium] Warning: Could not rebuild obsidian-asciidoc plugin"
-            }
+            npm install --silent > /dev/null 2>&1 && npm run build --silent > /dev/null 2>&1 || true
         fi
-    else
-        echo "[Scriptorium] Warning: Plugin directory exists but is not a git repository"
     fi
     cd "$SCRIPT_DIR"
-    
-    # Ensure plugin is enabled
     ASCIIDOC_PLUGIN_ID=$(node -e "const m=require('${ASCIIDOC_PLUGIN_DIR}/manifest.json'); console.log(m.id)" 2>/dev/null || echo "obsidian-asciidoc")
-    enable_plugin "$ASCIIDOC_PLUGIN_ID"
+    enable_plugin "$ASCIIDOC_PLUGIN_ID" > /dev/null 2>&1
+    echo "✓ obsidian-asciidoc plugin ready"
 else
-    echo "[Scriptorium] Cloning obsidian-asciidoc plugin..."
     if command -v git &> /dev/null; then
-        git clone "$ASCIIDOC_PLUGIN_REPO" "$ASCIIDOC_PLUGIN_DIR" || {
-            echo "[Scriptorium] Error: Could not clone obsidian-asciidoc plugin"
-            echo "[Scriptorium] Make sure git is installed and you have internet access"
+        git clone --quiet "$ASCIIDOC_PLUGIN_REPO" "$ASCIIDOC_PLUGIN_DIR" 2>/dev/null || {
+            echo "Error: Could not clone obsidian-asciidoc plugin"
+            echo "Make sure git is installed and you have internet access"
             exit 1
         }
         
         if [ -d "$ASCIIDOC_PLUGIN_DIR" ]; then
-            echo "[Scriptorium] Building obsidian-asciidoc plugin..."
             cd "$ASCIIDOC_PLUGIN_DIR"
             if [ -f "package.json" ]; then
-                npm install && npm run build || {
-                    echo "[Scriptorium] Error: Could not build obsidian-asciidoc plugin"
-                    echo "[Scriptorium] Check the error messages above"
+                npm install --silent > /dev/null 2>&1 && npm run build --silent > /dev/null 2>&1 || {
+                    echo "Error: Could not build obsidian-asciidoc plugin"
                     exit 1
                 }
-            else
-                echo "[Scriptorium] Warning: No package.json found in obsidian-asciidoc plugin"
             fi
             cd "$SCRIPT_DIR"
             
-            # Verify installation
             if [ -f "${ASCIIDOC_PLUGIN_DIR}/main.js" ] && [ -f "${ASCIIDOC_PLUGIN_DIR}/manifest.json" ]; then
-                echo "[Scriptorium] obsidian-asciidoc plugin installed successfully!"
-                
-                # Get plugin ID from manifest.json
                 ASCIIDOC_PLUGIN_ID=$(node -e "const m=require('${ASCIIDOC_PLUGIN_DIR}/manifest.json'); console.log(m.id)" 2>/dev/null || echo "obsidian-asciidoc")
-                
-                # Enable the plugin
-                echo "[Scriptorium] Enabling obsidian-asciidoc plugin..."
-                enable_plugin "$ASCIIDOC_PLUGIN_ID"
+                enable_plugin "$ASCIIDOC_PLUGIN_ID" > /dev/null 2>&1
+                echo "✓ obsidian-asciidoc plugin installed"
             else
-                echo "[Scriptorium] Error: Plugin files not found after installation"
-                echo "[Scriptorium] main.js or manifest.json missing in ${ASCIIDOC_PLUGIN_DIR}"
+                echo "Error: Plugin files not found after installation"
                 exit 1
             fi
         fi
     else
-        echo "[Scriptorium] Error: git is not installed. Cannot install obsidian-asciidoc plugin"
-        echo "[Scriptorium] Please install git or install the plugin manually"
+        echo "Error: git is required to install obsidian-asciidoc plugin"
         exit 1
     fi
 fi
 
 # Start Obsidian
-echo "[Scriptorium] Starting Obsidian..."
-echo "[Scriptorium] Note: Plugin logs will appear in this terminal"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Starting Obsidian..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
 
 # Try to find Obsidian command
 if command -v obsidian &> /dev/null; then
-    # Start Obsidian with the vault path
     obsidian "$VAULT_PATH" &
-    echo "[Scriptorium] Obsidian started in background (PID: $!)"
-    echo "[Scriptorium] You can close this terminal, but plugin logs will stop if you do"
-    echo "[Scriptorium] Press Ctrl+C to stop Obsidian (or close the window)"
-    echo ""
-    echo "[Scriptorium] To use a different vault next time, run: $0 <new-vault-path>"
-    
-    # Wait for user interrupt
+    echo "Obsidian started (PID: $!)"
+    echo "Plugin logs will appear in this terminal"
+    echo "Press Ctrl+C to stop"
     wait
 elif command -v flatpak &> /dev/null && flatpak list | grep -q "md.obsidian"; then
-    # Try Flatpak version
-    echo "[Scriptorium] Starting Obsidian via Flatpak..."
     flatpak run md.obsidian.Obsidian "$VAULT_PATH" &
-    echo "[Scriptorium] Obsidian started in background (PID: $!)"
-    echo "[Scriptorium] You can close this terminal, but plugin logs will stop if you do"
-    echo "[Scriptorium] Press Ctrl+C to stop Obsidian (or close the window)"
-    echo ""
-    echo "[Scriptorium] To use a different vault next time, run: $0 <new-vault-path>"
-    
-    # Wait for user interrupt
+    echo "Obsidian started via Flatpak (PID: $!)"
+    echo "Plugin logs will appear in this terminal"
+    echo "Press Ctrl+C to stop"
     wait
 else
-    echo "Error: Could not find Obsidian command"
-    echo "Please install Obsidian or add it to your PATH"
-    echo "Or start Obsidian manually and open vault: $VAULT_PATH"
+    echo "Error: Could not find Obsidian"
+    echo "Please install Obsidian or start manually:"
+    echo "  obsidian \"$VAULT_PATH\""
     exit 1
 fi
