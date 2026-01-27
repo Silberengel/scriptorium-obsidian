@@ -490,6 +490,7 @@ export async function writeMetadata(
 				lines.push("---");
 				lines.push("");
 				lines.push("**How to use this app:**");
+				lines.push("");
 				lines.push("1. Edit your content above");
 				lines.push("2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar");
 				lines.push("3. Select \"Create Nostr events\" to create and sign events");
