@@ -82,12 +82,11 @@ export function parseAsciiDocStructure(
 		const headerInfo = parseHeaderLine(line);
 
 		if (headerInfo) {
-			// Save content to current node if any
+			// Save content to current node if any (save to all nodes, we'll determine kind later)
 			if (currentContent.length > 0 && stack.length > 0) {
 				const currentNode = stack[stack.length - 1];
-				if (currentNode.kind === 30041) {
-					currentNode.content = currentContent.join("\n").trim();
-				}
+				// Save content to the node - it will be used if it becomes a 30041
+				currentNode.content = currentContent.join("\n").trim();
 				currentContent = [];
 			}
 
@@ -124,12 +123,10 @@ export function parseAsciiDocStructure(
 		}
 	}
 
-	// Save remaining content to the last node
+	// Save remaining content to the last node (save to all nodes, we'll determine kind later)
 	if (currentContent.length > 0 && stack.length > 0) {
 		const currentNode = stack[stack.length - 1];
-		if (currentNode.kind === 30041) {
-			currentNode.content = currentContent.join("\n").trim();
-		}
+		currentNode.content = currentContent.join("\n").trim();
 	}
 
 	// Post-process: mark lowest level nodes as 30041
@@ -140,25 +137,23 @@ export function parseAsciiDocStructure(
 
 /**
  * Recursively mark the lowest level nodes in each branch as 30041
+ * Leaf nodes (nodes with no children) should always be 30041
+ * Nodes with children should be 30040 (index events)
  */
 function markLowestLevelAs30041(node: StructureNode): void {
-	if (node.children.length === 0) {
-		// Leaf node - should be 30041 if it has content
-		if (node.content && node.content.trim().length > 0) {
-			node.kind = 30041;
-		}
-		return;
-	}
-
-	// Process children first
+	// Process children first (depth-first)
 	node.children.forEach((child) => markLowestLevelAs30041(child));
 
-	// Check if all children are 30041 - if so, this node should be 30040
-	// Otherwise, find the deepest 30040 node
-	const has30040Children = node.children.some((child) => child.kind === 30040);
-	if (!has30040Children) {
-		// All children are 30041, so this is an index (30040)
+	// After processing children, determine this node's kind
+	if (node.children.length === 0) {
+		// Leaf node - always 30041 (content event)
+		node.kind = 30041;
+		// Ensure content is preserved (it was collected during parsing)
+	} else {
+		// Node with children - always 30040 (index event)
 		node.kind = 30040;
+		// Clear content for index nodes (they don't have content, only references)
+		node.content = "";
 	}
 }
 

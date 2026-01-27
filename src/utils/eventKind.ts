@@ -13,6 +13,11 @@ export function determineEventKind(
 	metadataKind?: EventKind
 ): EventKind {
 	if (isAsciiDocFile(file)) {
+		// If metadata specifies a kind, use it (allows standalone 30041 or 30818)
+		if (metadataKind) {
+			return metadataKind;
+		}
+		// Otherwise, determine from content structure
 		if (isAsciiDocDocument(content)) {
 			return 30040;
 		}

@@ -2,7 +2,7 @@ import { TFile, TFolder, App, Notice } from "obsidian";
 import { EventKind, EventMetadata, ScriptoriumSettings } from "../types";
 import { readMetadata, writeMetadata, createDefaultMetadata, validateMetadata, mergeWithHeaderTitle } from "../metadataManager";
 import { buildEvents } from "../eventManager";
-import { saveEvents, loadEvents, eventsFileExists } from "../eventStorage";
+import { saveEvents, loadEvents, eventsFileExists, getEventsFilePath } from "../eventStorage";
 import { publishEventsWithRetry } from "../nostr/relayClient";
 import { getWriteRelays } from "../relayManager";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "../asciidocParser";
@@ -98,8 +98,10 @@ export async function handleCreateEvents(
 
 		// Show reminder modal before proceeding
 		new MetadataReminderModal(app, eventKind, async () => {
-			// Re-read metadata after user confirms (they may have updated it)
-			const updatedContent = await app.vault.read(file);
+			try {
+				log("Metadata reminder modal confirmed, starting event creation");
+				// Re-read metadata after user confirms (they may have updated it)
+				const updatedContent = await app.vault.read(file);
 			let updatedMetadata: EventMetadata = await readMetadata(file, app) || metadata || createDefaultMetadata(eventKind);
 			
 			// Ensure we have valid metadata
@@ -142,10 +144,21 @@ export async function handleCreateEvents(
 				new Notice("Please set your private key in settings");
 				return;
 			}
+			
+			log(`Building events for file: ${file.path}, kind: ${eventKind}`);
 			const result = await buildEvents(file, updatedContent, updatedMetadata, settings.privateKey, app);
+			log(`buildEvents returned: ${result.events.length} events, ${result.errors.length} errors`);
 
 			if (result.errors.length > 0) {
 				new Notice(`Errors: ${result.errors.join(", ")}`);
+				logError("buildEvents returned errors", result.errors);
+				return;
+			}
+
+			// Check if any events were created
+			if (result.events.length === 0) {
+				new Notice("No events were created. Check metadata and content.");
+				logError("buildEvents returned 0 events", { file: file.path, metadata: updatedMetadata });
 				return;
 			}
 
@@ -161,12 +174,66 @@ export async function handleCreateEvents(
 			// Show preview for structured documents
 			if (result.structure.length > 0) {
 				new StructurePreviewModal(app, result.structure, async () => {
-					await saveEvents(file, result.events, app);
-					new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
+					try {
+						const eventsPath = getEventsFilePath(file);
+						await saveEvents(file, result.events, app);
+						
+						// Try to open the events file in Obsidian
+						const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
+						if (eventsFile && eventsFile instanceof TFile) {
+							try {
+								const leaf = app.workspace.getMostRecentLeaf();
+								if (leaf && leaf.view) {
+									await leaf.openFile(eventsFile, { active: true });
+								} else {
+									const newLeaf = app.workspace.getLeaf("tab");
+									await newLeaf.openFile(eventsFile, { active: true });
+								}
+							} catch (openError: any) {
+								// If opening fails, just show the notice - file was saved successfully
+								logError("Error opening events file", openError);
+							}
+						}
+						
+						new Notice(`Created ${result.events.length} event(s) and saved to ${eventsPath}`);
+						log(`Events saved to: ${eventsPath}`);
+					} catch (error: any) {
+						showErrorNotice("Error saving events", error);
+						logError("Error saving events", error);
+					}
 				}).open();
 			} else {
-				await saveEvents(file, result.events, app);
-				new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
+				try {
+					const eventsPath = getEventsFilePath(file);
+					await saveEvents(file, result.events, app);
+					
+					// Try to open the events file in Obsidian
+					const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
+					if (eventsFile && eventsFile instanceof TFile) {
+						try {
+							const leaf = app.workspace.getMostRecentLeaf();
+							if (leaf && leaf.view) {
+								await leaf.openFile(eventsFile, { active: true });
+							} else {
+								const newLeaf = app.workspace.getLeaf("tab");
+								await newLeaf.openFile(eventsFile, { active: true });
+							}
+						} catch (openError: any) {
+							// If opening fails, just show the notice - file was saved successfully
+							logError("Error opening events file", openError);
+						}
+					}
+					
+					new Notice(`Created ${result.events.length} event(s) and saved to ${eventsPath}`);
+					log(`Events saved to: ${eventsPath}`);
+				} catch (error: any) {
+					showErrorNotice("Error saving events", error);
+					logError("Error saving events", error);
+				}
+			}
+			} catch (error: any) {
+				showErrorNotice("Error creating events", error);
+				logError("Error in event creation callback", error);
 			}
 		}).open();
 	} catch (error: any) {

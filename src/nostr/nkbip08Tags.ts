@@ -23,8 +23,8 @@ export const NKBIP08_TAGS = {
  * IMPORTANT: This handles hierarchical paths with colons (e.g., "part-1:question-2:article-3")
  * by converting colons to hyphens, resulting in "part-1-question-2-article-3" as per NKBIP-08 spec.
  */
-export function normalizeNKBIP08TagValue(text: string): string {
-	if (!text) {
+export function normalizeNKBIP08TagValue(text: string | undefined | null): string {
+	if (!text || typeof text !== "string") {
 		return "";
 	}
 	
@@ -110,7 +110,7 @@ export function extractNKBIP08TagsFrom30040(
  */
 export function buildNKBIP08TagsFor30041(
 	parentMetadata: Kind30040Metadata,
-	rootMetadata: Kind30040Metadata,
+	rootMetadata: Kind30040Metadata | undefined,
 	bookTitle: string,
 	chapterTitle: string,
 	sectionTitle: string,
@@ -118,7 +118,7 @@ export function buildNKBIP08TagsFor30041(
 ): NKBIP08_30041Tags {
 	return {
 		// C tag: Inherited from root 30040 (optional - for compendiums, digests, libraries)
-		collection_id: rootMetadata.collection_id ? normalizeNKBIP08TagValue(rootMetadata.collection_id) : undefined,
+		collection_id: rootMetadata?.collection_id ? normalizeNKBIP08TagValue(rootMetadata.collection_id) : undefined,
 		// Inherit from parent 30040
 		version_tag: parentMetadata.version_tag ? normalizeNKBIP08TagValue(parentMetadata.version_tag) : undefined,
 		// T tag: Normalized book title (from root 30040)
@@ -145,8 +145,8 @@ export function mergeNKBIP08TagsFor30040(
 	rootMetadata?: Kind30040Metadata
 ): NKBIP08_30040Tags {
 	// Collection ID is inherited from root (if present), not from parent
-	const collectionId = rootMetadata?.collection_id || childMetadata.collection_id;
-	const versionTag = parentMetadata?.version_tag || childMetadata.version_tag;
+	const collectionId = rootMetadata?.collection_id || childMetadata?.collection_id;
+	const versionTag = parentMetadata?.version_tag || childMetadata?.version_tag;
 	
 	return {
 		collection_id: collectionId ? normalizeNKBIP08TagValue(collectionId) : undefined,

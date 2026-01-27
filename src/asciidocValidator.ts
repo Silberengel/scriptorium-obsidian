@@ -144,7 +144,8 @@ function validateHeaderText(headerLines: HeaderInfo[], errors: string[]): void {
  * Validate header hierarchy - no skipped levels
  */
 function validateHeaderHierarchy(headerLines: HeaderInfo[], errors: string[]): void {
-	let previousLevel = 0;
+	// Start with level 1 (document header level) since section headers start at level 2
+	let previousLevel = 1;
 	
 	for (const header of headerLines) {
 		// Only check for skipped levels when going deeper (not when going back up)

@@ -12,6 +12,7 @@ import {
 	createSignedEvent,
 	buildTagsFromMetadata,
 	getPubkeyFromPrivkey,
+	normalizeDTag,
 } from "./nostr/eventBuilder";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { readMetadata, mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
@@ -98,9 +99,14 @@ export async function buildAsciiDocEvents(
 			}
 
 			// Build base 30041 metadata
+			// Ensure title is always a string (required for 30041)
+			if (!node.title || typeof node.title !== "string") {
+				errors.push(`30041 event missing required title at level ${node.level}`);
+				return;
+			}
 			const baseMetadata: Kind30041Metadata = {
 				kind: 30041,
-				title: node.title,
+				title: String(node.title),
 			};
 
 			// Determine if this 30041 is directly under root (making it a chapter) or under a chapter (making it a section)
@@ -129,25 +135,35 @@ export async function buildAsciiDocEvents(
 			const childEvents: Array<{ kind: number; dTag: string; eventId?: string }> = [];
 
 			// Merge parent metadata with node metadata for nested 30040 events
-			const baseMetadata = node.metadata as Kind30040Metadata;
+			// If node.metadata is undefined, create a minimal metadata object
+			// Ensure title is always a string (required for 30040)
+			if (!node.title || typeof node.title !== "string") {
+				errors.push(`30040 event missing required title at level ${node.level}`);
+				return;
+			}
+			const baseMetadata = (node.metadata as Kind30040Metadata | undefined) || {
+				kind: 30040,
+				title: String(node.title),
+			} as Kind30040Metadata;
 			
 			// Merge NKBIP-08 tags (inherits collection_id from root, version_tag from parent if present, otherwise uses own)
 			const mergedNKBIP08Tags = mergeNKBIP08TagsFor30040(parentMetadata, baseMetadata, currentRootMetadata);
 			
 			// Build merged metadata with inherited NKBIP-08 tags
+			// Ensure all string properties are properly normalized
 			const mergedMetadata: Kind30040Metadata = {
 				...baseMetadata,
 				kind: 30040,
-				title: node.title,
-				// Inherit other 30040 tags from parent
-				author: parentMetadata?.author || baseMetadata.author,
-				type: parentMetadata?.type || baseMetadata.type,
-				version: parentMetadata?.version || baseMetadata.version,
-				published_on: parentMetadata?.published_on || baseMetadata.published_on,
-				published_by: parentMetadata?.published_by || baseMetadata.published_by,
-				summary: parentMetadata?.summary || baseMetadata.summary,
-				source: parentMetadata?.source || baseMetadata.source,
-				image: parentMetadata?.image || baseMetadata.image,
+				title: String(node.title), // Ensure title is always a string
+				// Inherit other 30040 tags from parent, ensuring strings
+				author: parentMetadata?.author ? String(parentMetadata.author) : baseMetadata.author ? String(baseMetadata.author) : undefined,
+				type: parentMetadata?.type ? String(parentMetadata.type) : baseMetadata.type ? String(baseMetadata.type) : undefined,
+				version: parentMetadata?.version ? String(parentMetadata.version) : baseMetadata.version ? String(baseMetadata.version) : undefined,
+				published_on: parentMetadata?.published_on ? String(parentMetadata.published_on) : baseMetadata.published_on ? String(baseMetadata.published_on) : undefined,
+				published_by: parentMetadata?.published_by ? String(parentMetadata.published_by) : baseMetadata.published_by ? String(baseMetadata.published_by) : undefined,
+				summary: parentMetadata?.summary ? String(parentMetadata.summary) : baseMetadata.summary ? String(baseMetadata.summary) : undefined,
+				source: parentMetadata?.source ? String(parentMetadata.source) : baseMetadata.source ? String(baseMetadata.source) : undefined,
+				image: parentMetadata?.image ? String(parentMetadata.image) : baseMetadata.image ? String(baseMetadata.image) : undefined,
 				auto_update: parentMetadata?.auto_update || baseMetadata.auto_update,
 			};
 			
@@ -204,8 +220,17 @@ export async function buildAsciiDocEvents(
 	// Build events starting from root (no parent, book title is root title, isParentRoot=false for root itself)
 	await buildEventsFromNode(rootNode, metadata as Kind30040Metadata, rootBookTitle, false, metadata as Kind30040Metadata);
 
-	// Sort events: indexes first, then content (for proper dependency order)
+	// Sort events: root book first, then chapter indexes, then content (for proper dependency order)
+	// Root book is identified by having the root d-tag
+	const rootDTag = normalizeDTag(metadata.title);
 	events.sort((a, b) => {
+		// Root book (30040 with root d-tag) comes first
+		const aIsRoot = a.kind === 30040 && a.tags.find(t => t[0] === "d")?.[1] === rootDTag;
+		const bIsRoot = b.kind === 30040 && b.tags.find(t => t[0] === "d")?.[1] === rootDTag;
+		if (aIsRoot && !bIsRoot) return -1;
+		if (!aIsRoot && bIsRoot) return 1;
+		
+		// Then other 30040 indexes, then 30041 content
 		if (a.kind === 30040 && b.kind === 30041) return -1;
 		if (a.kind === 30041 && b.kind === 30040) return 1;
 		return 0;
@@ -227,13 +252,15 @@ export async function buildEvents(
 	// Check if this is an AsciiDoc document with structure
 	const hasStructure = isAsciiDocFile(file) && isAsciiDocDocument(content);
 
-	if (hasStructure && (metadata.kind === 30040 || metadata.kind === 30041)) {
+	// Only use buildAsciiDocEvents for 30040 (publication index) with structure
+	// Standalone 30041 events should use buildSimpleEvent, even if they have a document header
+	if (hasStructure && metadata.kind === 30040) {
 		// Parse header title and merge with metadata
 		const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
 		const mergedMetadata = mergeWithHeaderTitle(metadata, headerTitle);
 		return buildAsciiDocEvents(file, content, mergedMetadata, privkey, app);
 	} else {
-		// Simple event
+		// Simple event (including standalone 30041, even if it has a document header)
 		const events = await buildSimpleEvent(file, content, metadata, privkey, app);
 		return { events, structure: [], errors: [] };
 	}

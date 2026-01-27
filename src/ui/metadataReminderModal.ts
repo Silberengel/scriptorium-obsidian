@@ -61,9 +61,14 @@ export class MetadataReminderModal extends Modal {
 			text: "OK, I've Updated the Metadata",
 			cls: "mod-cta",
 		});
-		okButton.addEventListener("click", () => {
-			this.onConfirm();
+		okButton.addEventListener("click", async () => {
 			this.close();
+			try {
+				await this.onConfirm();
+			} catch (error: any) {
+				// Error handling is done in the callback, but ensure we catch any unhandled errors
+				console.error("Error in metadata reminder modal callback:", error);
+			}
 		});
 
 		const cancelButton = buttonContainer.createEl("button", { text: "Cancel" });
