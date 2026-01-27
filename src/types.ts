@@ -80,7 +80,7 @@ export interface Kind30040Metadata extends BaseMetadata {
 	derivative_pubkey?: string;
 	additional_tags?: string[][]; // custom tags
 	// NKBIP-08 tags
-	collection_id?: string; // C tag
+	collection_id?: string; // C tag (optional - for compendiums, digests, libraries of related books)
 	version_tag?: string; // v tag
 }
 
@@ -95,7 +95,7 @@ export interface Kind30041Metadata extends BaseMetadata {
 	published_at?: string;
 	topics?: string[]; // t tags
 	// NKBIP-08 tags (only for nested 30041 under 30040)
-	collection_id?: string; // C tag
+	collection_id?: string; // C tag (inherited from root 30040)
 	title_id?: string; // T tag
 	chapter_id?: string; // c tag
 	section_id?: string; // s tag

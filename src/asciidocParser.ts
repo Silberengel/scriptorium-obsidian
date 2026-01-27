@@ -26,8 +26,9 @@ export function isAsciiDocDocument(content: string): boolean {
 
 /**
  * Parse AsciiDoc line to extract header level and title
+ * Exported for use in validator
  */
-function parseHeaderLine(line: string): { level: number; title: string } | null {
+export function parseHeaderLine(line: string): { level: number; title: string } | null {
 	const trimmed = line.trim();
 	if (!trimmed.startsWith("=")) {
 		return null;

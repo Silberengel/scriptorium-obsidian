@@ -1,6 +1,7 @@
 import { finalizeEvent, getEventHash, getPublicKey, nip19 } from "nostr-tools";
-import { EventKind, EventMetadata, SignedEvent, Kind30041Metadata } from "../types";
+import { EventKind, EventMetadata, SignedEvent, Kind30041Metadata, Kind30040Metadata } from "../types";
 import { sanitizeString } from "../utils/security";
+import { addNKBIP08TagsTo30040, addNKBIP08TagsTo30041 } from "./nkbip08Tags";
 
 /**
  * Normalize secret key from bech32 nsec or hex format to hex
@@ -145,8 +146,10 @@ export function buildTagsFromMetadata(
 				metadata.topics.forEach((topic) => tags.push(["t", topic]));
 			}
 			// NKBIP-08 tags
-			if (metadata.collection_id) tags.push(["C", metadata.collection_id]);
-			if (metadata.version_tag) tags.push(["v", metadata.version_tag]);
+			// Note: For structured documents, NKBIP-08 tags are added in eventManager.ts
+			// with proper book/chapter identification. For simple 30040 events, treat as book.
+			const meta30040 = metadata as Kind30040Metadata;
+			addNKBIP08TagsTo30040(tags, meta30040, true, false, undefined, meta30040); // Simple 30040 is a book, use itself as root
 			// Additional tags
 			if (metadata.additional_tags) {
 				metadata.additional_tags.forEach((tag) => tags.push(tag));
@@ -179,11 +182,7 @@ export function buildTagsFromMetadata(
 			}
 			
 			// NKBIP-08 tags (only for nested 30041 under 30040)
-			if (meta30041.collection_id) tags.push(["C", meta30041.collection_id]);
-			if (meta30041.title_id) tags.push(["T", meta30041.title_id]);
-			if (meta30041.chapter_id) tags.push(["c", meta30041.chapter_id]);
-			if (meta30041.section_id) tags.push(["s", meta30041.section_id]);
-			if (meta30041.version_tag) tags.push(["v", meta30041.version_tag]);
+			addNKBIP08TagsTo30041(tags, meta30041);
 			break;
 
 		case 30817:

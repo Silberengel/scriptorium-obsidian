@@ -233,10 +233,10 @@ export class MetadataModal extends Modal {
 
 		new Setting(container)
 			.setName("Collection ID")
-			.setDesc("NKBIP-08 collection identifier (C tag)")
+			.setDesc("NKBIP-08 collection identifier (C tag) - Optional: compendium, digest, or library of related books (e.g., 'bible', 'goethe-complete-works', 'encyclopedia-britannica'). If set, will be inherited by all events in the hierarchy.")
 			.addText((text) => {
 				text.setValue(meta.collection_id || "")
-					.setPlaceholder("collection-id")
+					.setPlaceholder("e.g., bible, goethe-complete-works")
 					.onChange((value) => {
 						meta.collection_id = value;
 					});
@@ -256,17 +256,6 @@ export class MetadataModal extends Modal {
 
 	private render30041Fields(container: HTMLElement) {
 		const meta = this.metadata as any;
-
-		new Setting(container)
-			.setName("Collection ID")
-			.setDesc("NKBIP-08 collection identifier (C tag)")
-			.addText((text) => {
-				text.setValue(meta.collection_id || "")
-					.setPlaceholder("collection-id")
-					.onChange((value) => {
-						meta.collection_id = value;
-					});
-			});
 
 		new Setting(container)
 			.setName("Title ID")

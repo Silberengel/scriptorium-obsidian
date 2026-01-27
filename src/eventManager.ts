@@ -11,11 +11,19 @@ import {
 import {
 	createSignedEvent,
 	buildTagsFromMetadata,
-	normalizeDTag,
 	getPubkeyFromPrivkey,
 } from "./nostr/eventBuilder";
-import { parseAsciiDocStructure } from "./asciidocParser";
+import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { readMetadata, mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
+import { isAsciiDocFile } from "./utils/fileExtensions";
+import {
+	buildNKBIP08TagsFor30041,
+	applyNKBIP08TagsTo30041,
+	mergeNKBIP08TagsFor30040,
+	applyNKBIP08TagsTo30040,
+	addNKBIP08TagsTo30040,
+	NKBIP08_TAGS,
+} from "./nostr/nkbip08Tags";
 
 /**
  * Build events from a simple document (non-AsciiDoc)
@@ -65,21 +73,52 @@ export async function buildAsciiDocEvents(
 
 	const rootNode = header[0];
 	const structure: StructureNode[] = [rootNode];
+	
+	// Track the root book title for T tag inheritance
+	const rootBookTitle = rootNode.title;
 
 	// Recursively build events from structure
-	async function buildEventsFromNode(node: StructureNode, parentMetadata?: Kind30040Metadata): Promise<void> {
+	async function buildEventsFromNode(
+		node: StructureNode,
+		parentMetadata?: Kind30040Metadata,
+		bookTitle?: string,
+		isParentRoot: boolean = false,
+		rootMetadata?: Kind30040Metadata
+	): Promise<void> {
+		// Determine book title: use root if this is root, otherwise inherit from parent
+		const currentBookTitle = bookTitle || rootBookTitle;
+		// Track root metadata for collection_id inheritance
+		const currentRootMetadata = rootMetadata || (metadata as Kind30040Metadata);
+		
 		if (node.kind === 30041) {
 			// Content event - nested under 30040, so use NKBIP-08 tags
-			const contentMetadata: Kind30041Metadata = {
+			if (!parentMetadata) {
+				errors.push("30041 event must have a parent 30040 metadata");
+				return;
+			}
+
+			// Build base 30041 metadata
+			const baseMetadata: Kind30041Metadata = {
 				kind: 30041,
 				title: node.title,
-				// Inherit NKBIP-08 tags from parent 30040
-				collection_id: parentMetadata?.collection_id,
-				title_id: parentMetadata ? normalizeDTag(parentMetadata.title) : undefined,
-				chapter_id: node.dTag,
-				section_id: node.dTag,
-				version_tag: parentMetadata?.version_tag,
 			};
+
+			// Determine if this 30041 is directly under root (making it a chapter) or under a chapter (making it a section)
+			// If parent is root, this 30041 is a chapter (not a section)
+			const isChapter = isParentRoot;
+			
+			// Build and apply NKBIP-08 tags from parent
+			// If isChapter: c tag uses 30041's own title, no s tag
+			// If not isChapter: c tag uses parent chapter title, s tag uses section title
+			const nkbip08Tags = buildNKBIP08TagsFor30041(
+				parentMetadata,
+				currentRootMetadata,  // Root metadata for collection_id inheritance
+				currentBookTitle,  // T tag: book title
+				isChapter ? node.title : parentMetadata.title,  // c tag: chapter title (30041's title if chapter, parent's if section)
+				node.title,  // s tag: section title (this 30041, but only used if not isChapter)
+				isChapter  // Flag: true if this is a chapter (direct child of root)
+			);
+			const contentMetadata = applyNKBIP08TagsTo30041(baseMetadata, nkbip08Tags);
 
 			const tags = buildTagsFromMetadata(contentMetadata, pubkey);
 			const event = createSignedEvent(30041, node.content || "", tags, privkey);
@@ -90,15 +129,16 @@ export async function buildAsciiDocEvents(
 			const childEvents: Array<{ kind: number; dTag: string; eventId?: string }> = [];
 
 			// Merge parent metadata with node metadata for nested 30040 events
-			// Inherit NKBIP-08 tags from parent if this is a nested 30040
 			const baseMetadata = node.metadata as Kind30040Metadata;
+			
+			// Merge NKBIP-08 tags (inherits collection_id from root, version_tag from parent if present, otherwise uses own)
+			const mergedNKBIP08Tags = mergeNKBIP08TagsFor30040(parentMetadata, baseMetadata, currentRootMetadata);
+			
+			// Build merged metadata with inherited NKBIP-08 tags
 			const mergedMetadata: Kind30040Metadata = {
 				...baseMetadata,
 				kind: 30040,
 				title: node.title,
-				// Inherit NKBIP-08 tags from parent 30040 if present
-				collection_id: parentMetadata?.collection_id || baseMetadata.collection_id,
-				version_tag: parentMetadata?.version_tag || baseMetadata.version_tag,
 				// Inherit other 30040 tags from parent
 				author: parentMetadata?.author || baseMetadata.author,
 				type: parentMetadata?.type || baseMetadata.type,
@@ -110,10 +150,18 @@ export async function buildAsciiDocEvents(
 				image: parentMetadata?.image || baseMetadata.image,
 				auto_update: parentMetadata?.auto_update || baseMetadata.auto_update,
 			};
+			
+			// Apply merged NKBIP-08 tags
+			const finalMetadata = applyNKBIP08TagsTo30040(mergedMetadata, mergedNKBIP08Tags);
 
-			// Build all children first, passing merged metadata as parent
+			// Determine if this is a book (root) or chapter (has parent)
+			const isBook = !parentMetadata;
+			const isChapter = !!parentMetadata;
+			const isRoot = !parentMetadata; // This node is the root
+			
+			// Build all children first, passing final metadata as parent and book title
 			for (const child of node.children) {
-				await buildEventsFromNode(child, mergedMetadata);
+				await buildEventsFromNode(child, finalMetadata, currentBookTitle, isRoot, currentRootMetadata);
 				
 				// Find the event we just created for this child
 				const childEvent = events.find((e) => {
@@ -131,15 +179,30 @@ export async function buildAsciiDocEvents(
 			}
 
 			// Now build this index event with references to children
-			const tags = buildTagsFromMetadata(mergedMetadata, pubkey, childEvents);
-			const event = createSignedEvent(30040, "", tags, privkey);
+			// We need to manually add NKBIP-08 tags with proper book/chapter flags
+			const tags = buildTagsFromMetadata(finalMetadata, pubkey, childEvents);
+			
+			// Override NKBIP-08 tags with proper book/chapter identification
+			// Remove any existing NKBIP-08 tags first
+			const filteredTags = tags.filter(t => 
+				t[0] !== NKBIP08_TAGS.COLLECTION &&
+				t[0] !== NKBIP08_TAGS.TITLE && 
+				t[0] !== NKBIP08_TAGS.CHAPTER && 
+				t[0] !== NKBIP08_TAGS.VERSION
+			);
+			
+			// Add NKBIP-08 tags with proper flags
+			// Chapters inherit T tag from book
+			addNKBIP08TagsTo30040(filteredTags, finalMetadata, isBook, isChapter, currentBookTitle, currentRootMetadata);
+			
+			const event = createSignedEvent(30040, "", filteredTags, privkey);
 			events.push(event);
-			node.metadata = mergedMetadata;
+			node.metadata = finalMetadata;
 		}
 	}
 
-	// Build events starting from root
-	await buildEventsFromNode(rootNode, metadata as Kind30040Metadata);
+	// Build events starting from root (no parent, book title is root title, isParentRoot=false for root itself)
+	await buildEventsFromNode(rootNode, metadata as Kind30040Metadata, rootBookTitle, false, metadata as Kind30040Metadata);
 
 	// Sort events: indexes first, then content (for proper dependency order)
 	events.sort((a, b) => {
@@ -162,8 +225,7 @@ export async function buildEvents(
 	app: any
 ): Promise<EventCreationResult> {
 	// Check if this is an AsciiDoc document with structure
-	const isAsciiDoc = file.extension === "adoc" || file.extension === "asciidoc";
-	const hasStructure = isAsciiDoc && content.trim().startsWith("=") && !content.trim().startsWith("==");
+	const hasStructure = isAsciiDocFile(file) && isAsciiDocDocument(content);
 
 	if (hasStructure && (metadata.kind === 30040 || metadata.kind === 30041)) {
 		// Parse header title and merge with metadata

@@ -10,6 +10,8 @@ An Obsidian plugin for creating, editing, and publishing Nostr document events d
 
 - **Multiple event kinds**: Markdown (1, 11, 30023, 30817) and AsciiDoc (30040, 30041, 30818)
 - **Automatic structure parsing**: AsciiDoc documents with headers are parsed into nested 30040/30041 event hierarchies
+- **NKBIP-08 support**: Hierarchical book wikilinks with optional collection tags for compendiums, digests, and libraries
+- **Flexible structure**: Supports both two-level (book + chapters) and three-level (book + chapters + sections) hierarchies
 - **Metadata in files**: Metadata stored directly in Markdown frontmatter or AsciiDoc header attributes
 - **Two-step workflow**: Create/sign events separately from publishing to relays
 - **Automatic relay management**: Fetch relay lists (kind 10002) with AUTH support
@@ -111,8 +113,8 @@ Supported event kinds: **30040**, **30041**, **30818**
 :author: Author Name
 :type: book
 :summary: Book description
-:collection_id: my-collection
-:version_tag: v1
+:collection_id: bible
+:version_tag: kjv
 
 == Chapter 1
 
@@ -123,7 +125,41 @@ Chapter content here...
 Section content...
 ```
 
+**Two-level structure** (book + chapters, no sections):
+```asciidoc
+= Book Title
+
+:kind: 30040
+:author: Author Name
+:type: book
+:summary: Book description
+
+== Chapter 1
+
+Chapter content here...
+
+== Chapter 2
+
+Chapter content here...
+```
+
+In two-level structures, chapters are created as 30041 events directly under the root 30040.
+
 When publishing, metadata is automatically stripped from content before creating events.
+
+### NKBIP-08 Tag Inheritance
+
+For structured AsciiDoc documents (kind 30040), NKBIP-08 tags are automatically assigned based on the document hierarchy:
+
+- **C tag (collection_id)**: Optional, set in root 30040 metadata. If set, inherited by all events in the hierarchy. Use for compendiums, digests, or libraries of related books (e.g., "bible", "goethe-complete-works", "encyclopedia-britannica").
+- **T tag (title_id)**: Always set from root 30040 book title, inherited by all nested events.
+- **c tag (chapter_id)**: 
+  - Two-level structure: from 30041 chapter title (chapters are 30041 events)
+  - Three-level structure: from parent 30040 chapter title
+- **s tag (section_id)**: Only in three-level structures, from 30041 section title
+- **v tag (version_tag)**: If set in root 30040, inherited by all events in the hierarchy
+
+All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers only).
 
 ## Event Kinds
 
@@ -140,7 +176,11 @@ When publishing, metadata is automatically stripped from content before creating
 ### Stand-alone vs Nested 30041
 
 - **Stand-alone 30041**: Uses NKBIP-01 tags (d, title, image, summary, published_at, topics)
-- **Nested 30041** (under 30040): Uses NKBIP-08 tags (inherits collection_id, version_tag from parent)
+- **Nested 30041** (under 30040): Uses NKBIP-08 tags
+  - **Two-level structure** (book + chapters): 30041 events are chapters (c tag from chapter title, no s tag)
+  - **Three-level structure** (book + chapters + sections): 30041 events are sections (c tag from parent chapter, s tag from section title)
+  - All nested 30041 events inherit C tag (collection_id) and v tag (version_tag) from root 30040
+  - All nested 30041 events get T tag (title_id) from root 30040 book title
 
 ## Metadata Fields
 
@@ -167,12 +207,19 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 - `published_by` - Publisher
 - `source` - Source URL
 - `auto_update` - Auto-update behavior (yes, ask, no)
-- `collection_id` - NKBIP-08 collection identifier
-- `version_tag` - NKBIP-08 version identifier
+- `collection_id` - NKBIP-08 collection identifier (C tag) - **Optional**: compendium, digest, or library of related books (e.g., "bible", "goethe-complete-works", "encyclopedia-britannica"). If set in root 30040, inherited by all events in the hierarchy.
+- `version_tag` - NKBIP-08 version identifier (v tag) - If set in root 30040, inherited by all events in the hierarchy
 
 **30041 (Publication Content)**:
-- Stand-alone: Same as 30023 (image, summary, published_at, topics)
-- Nested: NKBIP-08 tags (collection_id, title_id, chapter_id, section_id, version_tag)
+- **Stand-alone**: Same as 30023 (image, summary, published_at, topics)
+- **Nested** (under 30040): NKBIP-08 tags
+  - `collection_id` - Inherited from root 30040 (C tag)
+  - `title_id` - From root 30040 book title (T tag)
+  - `chapter_id` - From chapter title (c tag)
+    - Two-level: from 30041's own title (it is the chapter)
+    - Three-level: from parent 30040's title
+  - `section_id` - From 30041's title (s tag) - Only in three-level structures
+  - `version_tag` - Inherited from root 30040 (v tag)
 
 ## Manual Installation
 

@@ -1,6 +1,7 @@
 import { TFile } from "obsidian";
 import { EventKind, EventMetadata } from "./types";
 import { safeConsoleError } from "./utils/security";
+import { isMarkdownFile, isAsciiDocFile } from "./utils/fileExtensions";
 
 /**
  * Tag definitions with descriptions for each event kind
@@ -44,7 +45,7 @@ const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
 		{ key: "image", description: "Cover image URL", required: false },
 		{ key: "auto_update", description: "Auto-update: yes, ask, or no", required: false },
 		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
-		{ key: "collection_id", description: "NKBIP-08 collection identifier (C tag)", required: false },
+		{ key: "collection_id", description: "NKBIP-08 collection identifier (C tag) - Optional: compendium, digest, or library of related books (e.g., 'bible', 'goethe-complete-works', 'encyclopedia-britannica')", required: false },
 		{ key: "version_tag", description: "NKBIP-08 version identifier (e.g., kjv, drb)", required: false },
 	],
 	30041: [
@@ -55,6 +56,7 @@ const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
 		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
 		// Note: NKBIP-08 tags (collection_id, title_id, chapter_id, section_id, version_tag) 
 		// are only used when 30041 is nested under 30040, not for stand-alone 30041 events
+		// collection_id is inherited from root 30040 if present
 	],
 	30817: [
 		{ key: "title", description: "Wiki page title (required)", required: true },
@@ -269,7 +271,7 @@ export async function readMetadata(
 	try {
 		const content = await app.vault.read(file);
 		
-		if (file.extension === "md" || file.extension === "markdown") {
+		if (isMarkdownFile(file)) {
 			const { metadata } = parseMarkdownFrontmatter(content);
 			if (Object.keys(metadata).length === 0) {
 				return null;
@@ -277,7 +279,7 @@ export async function readMetadata(
 			const kind = (metadata.kind as EventKind) || 1;
 			const filtered = filterPlaceholders(metadata, kind);
 			return filtered as EventMetadata;
-		} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+		} else if (isAsciiDocFile(file)) {
 			const { metadata } = parseAsciiDocAttributes(content);
 			if (Object.keys(metadata).length === 0) {
 				return null;
@@ -299,10 +301,10 @@ export async function readMetadata(
  * For AsciiDoc, keeps the title header but removes attribute lines
  */
 export function stripMetadataFromContent(file: TFile, content: string): string {
-	if (file.extension === "md" || file.extension === "markdown") {
+	if (isMarkdownFile(file)) {
 		const { body } = parseMarkdownFrontmatter(content);
 		return body;
-	} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+	} else if (isAsciiDocFile(file)) {
 		const lines = content.split("\n");
 		const result: string[] = [];
 		let foundTitle = false;
@@ -351,12 +353,12 @@ export async function writeMetadata(
 	try {
 		const currentContent = await app.vault.read(file);
 		
-		if (file.extension === "md" || file.extension === "markdown") {
+		if (isMarkdownFile(file)) {
 			const { body } = parseMarkdownFrontmatter(currentContent);
 			const frontmatter = formatMarkdownFrontmatter(metadata);
 			const newContent = frontmatter ? `---\n${frontmatter}---\n${body}` : body;
 			await app.vault.modify(file, newContent);
-		} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+		} else if (isAsciiDocFile(file)) {
 			// For AsciiDoc, we need to preserve the title if it exists in the body
 			// and remove old attributes
 			const { body } = parseAsciiDocAttributes(currentContent);
