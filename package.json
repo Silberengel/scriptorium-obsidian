@@ -24,8 +24,6 @@
 		"typescript": "5.3.3"
 	},
 	"dependencies": {
-		"@codemirror/lang-yaml": "^6.1.2",
-		"codemirror-asciidoc": "^2.0.1",
 		"js-yaml": "^4.1.0",
 		"nostr-tools": "^2.20.0"
 	}

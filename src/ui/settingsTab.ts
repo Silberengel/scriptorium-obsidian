@@ -71,38 +71,12 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							.setCta()
 							.onClick(async () => {
 								const loaded = await this.plugin.loadPrivateKey();
-								if (!loaded && !this.plugin.settings.privateKey) {
-									new Notice("Could not load private key. Please enter it manually below.");
+								if (loaded) {
+									new Notice("Private key loaded from environment variable");
+								} else {
+									new Notice("Could not load private key from SCRIPTORIUM_OBSIDIAN_KEY environment variable");
 								}
 								await this.display();
-							});
-					});
-				
-				// Allow manual update of private key
-				new Setting(containerEl)
-					.setName("Update Private Key")
-					.setDesc("Manually enter or update your private key (nsec1... or 64-char hex). Leave empty to keep current.")
-					.addText((text) => {
-						text.setPlaceholder("nsec1... or hex key")
-							.setValue("")
-							.inputEl.type = "password";
-					})
-					.addButton((button) => {
-						button.setButtonText("Update")
-							.onClick(async () => {
-								const input = containerEl.querySelector("input[type='password']") as HTMLInputElement;
-								if (input && input.value.trim()) {
-									const key = input.value.trim();
-									if (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key)) {
-										this.plugin.settings.privateKey = key;
-										await this.plugin.saveSettings();
-										input.value = "";
-										new Notice("Private key updated successfully");
-										await this.display();
-									} else {
-										new Notice("Invalid key format. Expected nsec1... or 64-char hex string.");
-									}
-								}
 							});
 					});
 			} catch (error: any) {
@@ -121,39 +95,17 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		} else {
 			new Setting(containerEl)
 				.setName("Private Key")
-				.setDesc("Enter your private key manually, or set SCRIPTORIUM_OBSIDIAN_KEY environment variable, or create .scriptorium_key file in vault root.")
-				.addText((text) => {
-					text.setPlaceholder("nsec1... or 64-char hex key")
-						.inputEl.type = "password";
-				})
-				.addButton((button) => {
-					button.setButtonText("Set Key")
-						.setCta()
-						.onClick(async () => {
-							const input = containerEl.querySelector("input[type='password']") as HTMLInputElement;
-							if (input && input.value.trim()) {
-								const key = input.value.trim();
-								if (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key)) {
-									this.plugin.settings.privateKey = key;
-									await this.plugin.saveSettings();
-									input.value = "";
-									new Notice("Private key saved successfully");
-									await this.display();
-								} else {
-									new Notice("Invalid key format. Expected nsec1... or 64-char hex string.");
-								}
-							}
-						});
-				})
+				.setDesc("Set SCRIPTORIUM_OBSIDIAN_KEY environment variable to load your private key. Use the startup script with --generate-key to create a new key.")
 				.addButton((button) => {
 					button.setButtonText("Refresh")
+						.setCta()
 						.onClick(async () => {
 							const loaded = await this.plugin.loadPrivateKey();
 							if (loaded) {
-								new Notice("Private key loaded successfully");
+								new Notice("Private key loaded from environment variable");
 								await this.display();
 							} else {
-								new Notice("Could not load private key. Please enter it manually above.");
+								new Notice("Could not load private key. Set SCRIPTORIUM_OBSIDIAN_KEY environment variable and restart Obsidian.");
 							}
 						});
 				});

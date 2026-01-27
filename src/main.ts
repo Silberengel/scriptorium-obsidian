@@ -12,39 +12,26 @@ import { getWriteRelays } from "./relayManager";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { normalizeSecretKey, getPubkeyFromPrivkey } from "./nostr/eventBuilder";
 import { safeConsoleError, safeConsoleLog, verifyEventSecurity } from "./utils/security";
-// CodeMirror language packages for syntax highlighting
-// These will be bundled with the plugin
-import { yaml } from "@codemirror/lang-yaml";
-import { asciidoc } from "codemirror-asciidoc";
-import { StreamLanguage } from "@codemirror/language";
-import { Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
 
 export default class ScriptoriumPlugin extends Plugin {
 	settings!: ScriptoriumSettings;
 
 	async onload() {
-		await this.loadSettings();
-		await this.loadPrivateKey();
+		// Log to terminal console that started Obsidian
+		console.error("[Scriptorium] Plugin loading...");
+		process.stderr.write("[Scriptorium] Plugin loading...\n");
+		
+		try {
+			await this.loadSettings();
+			await this.loadPrivateKey();
 
-		// Register AsciiDoc file extensions so Obsidian can open them
-		// This tells Obsidian to treat .adoc and .asciidoc files as editable text files
-		// Using "text" view type so they open as plain text editors in Obsidian
-		this.registerExtensions(["adoc", "asciidoc"], "text");
-		
-		// Register YAML file extensions so Obsidian can open metadata files
-		// This tells Obsidian to treat .yml and .yaml files as editable text files
-		this.registerExtensions(["yml", "yaml"], "text");
-		
-		// Register editor extensions for syntax highlighting
-		// Apply YAML and AsciiDoc language modes
-		// Note: Markdown files (.md) use Obsidian's default "markdown" view type
-		// which has built-in syntax highlighting, so they won't be affected by these extensions
-		// These extensions only apply to files registered with "text" view type (.yml, .yaml, .adoc, .asciidoc)
-		this.registerEditorExtension([
-			yaml(),
-			StreamLanguage.define(asciidoc)
-		]);
+			// Note: We don't register file extensions for .yml, .yaml, .adoc, or .asciidoc files
+			// Users should install the obsidian-asciidoc plugin for .adoc file support
+			// YAML files can be edited with external editors or Obsidian may handle them natively
+			console.error("[Scriptorium] Plugin loaded - file extensions not registered");
+			process.stderr.write("[Scriptorium] Plugin loaded - file extensions not registered\n");
+			console.error("[Scriptorium] Install obsidian-asciidoc plugin for .adoc file editing support");
+			process.stderr.write("[Scriptorium] Install obsidian-asciidoc plugin for .adoc file editing support\n");
 
 		// Add settings tab
 		this.addSettingTab(new ScriptoriumSettingTab(this.app, this));
@@ -85,8 +72,22 @@ export default class ScriptoriumPlugin extends Plugin {
 			this.handleNewDocument();
 		});
 
-		// Status bar
-		this.addStatusBarItem().setText("Scriptorium");
+			// Status bar
+			this.addStatusBarItem().setText("Scriptorium");
+			
+			console.error("[Scriptorium] Plugin loaded successfully");
+			process.stderr.write("[Scriptorium] Plugin loaded successfully\n");
+		} catch (error: any) {
+			const errorMsg = error?.message || String(error);
+			const stackTrace = error?.stack || "";
+			console.error(`[Scriptorium] Error loading plugin: ${errorMsg}`);
+			process.stderr.write(`[Scriptorium] Error loading plugin: ${errorMsg}\n`);
+			if (stackTrace) {
+				console.error(`[Scriptorium] Stack trace:`, stackTrace);
+				process.stderr.write(`[Scriptorium] Stack trace: ${stackTrace}\n`);
+			}
+			safeConsoleError("Error loading plugin:", error);
+		}
 	}
 
 	onunload() {}
@@ -100,9 +101,7 @@ export default class ScriptoriumPlugin extends Plugin {
 	}
 
 	async loadPrivateKey(): Promise<boolean> {
-		// Try multiple methods to load the private key
-		
-		// Method 1: Try environment variable (may not work in Obsidian's sandbox)
+		// Load private key from environment variable only
 		try {
 			// @ts-ignore - process.env may not be typed in Obsidian context
 			if (typeof process !== "undefined" && process.env?.SCRIPTORIUM_OBSIDIAN_KEY) {
@@ -115,38 +114,6 @@ export default class ScriptoriumPlugin extends Plugin {
 			}
 		} catch (error) {
 			// Environment variable access not available
-		}
-		
-		// Method 2: Try reading from a file in the vault (.scriptorium_key)
-		try {
-			const keyFile = this.app.vault.getAbstractFileByPath(".scriptorium_key");
-			if (keyFile && keyFile instanceof TFile) {
-				const keyContent = await this.app.vault.read(keyFile);
-				const key = keyContent.trim();
-				if (key && (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key))) {
-					this.settings.privateKey = key;
-					await this.saveSettings();
-					return true;
-				}
-			}
-		} catch (error) {
-			// File doesn't exist or can't be read
-		}
-		
-		// Method 3: Try reading from .obsidian/scriptorium_key (hidden file)
-		try {
-			const hiddenKeyFile = this.app.vault.getAbstractFileByPath(".obsidian/scriptorium_key");
-			if (hiddenKeyFile && hiddenKeyFile instanceof TFile) {
-				const keyContent = await this.app.vault.read(hiddenKeyFile);
-				const key = keyContent.trim();
-				if (key && (key.startsWith("nsec1") || /^[0-9a-f]{64}$/i.test(key))) {
-					this.settings.privateKey = key;
-					await this.saveSettings();
-					return true;
-				}
-			}
-		} catch (error) {
-			// File doesn't exist or can't be read
 		}
 		
 		return false;
@@ -406,6 +373,9 @@ export default class ScriptoriumPlugin extends Plugin {
 	private async handleNewDocument() {
 		new NewDocumentModal(this.app, async (kind: EventKind, title: string) => {
 			try {
+				console.error(`[Scriptorium] Creating new document: kind=${kind}, title=${title}`);
+				process.stderr.write(`[Scriptorium] Creating new document: kind=${kind}, title=${title}\n`);
+				
 				// Ensure folder structure exists
 				const folderPath = await this.ensureNostrNotesFolder(kind);
 
@@ -453,17 +423,30 @@ export default class ScriptoriumPlugin extends Plugin {
 				
 				let file: TFile;
 				try {
+					console.error(`[Scriptorium] Creating file: ${filePath}`);
+					process.stderr.write(`[Scriptorium] Creating file: ${filePath}\n`);
 					file = await this.app.vault.create(filePath, content);
+					console.error(`[Scriptorium] File created successfully: ${file.path}`);
+					process.stderr.write(`[Scriptorium] File created successfully: ${file.path}\n`);
 					
 					// Verify file was actually created
 					const verifyFile = this.app.vault.getAbstractFileByPath(filePath);
 					if (!verifyFile || !(verifyFile instanceof TFile)) {
-						new Notice(`Error: File ${filename} was not created properly`);
+						const msg = `Error: File ${filename} was not created properly`;
+						console.error(`[Scriptorium] ${msg}`);
+						process.stderr.write(`[Scriptorium] ${msg}\n`);
+						new Notice(msg);
 						safeConsoleError(`File creation verification failed for ${filePath}`);
 						return;
 					}
 				} catch (error: any) {
 					const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
+					console.error(`[Scriptorium] Error creating file: ${safeMessage}`);
+					process.stderr.write(`[Scriptorium] Error creating file: ${safeMessage}\n`);
+					if (error?.stack) {
+						console.error(`[Scriptorium] Stack trace:`, error.stack);
+						process.stderr.write(`[Scriptorium] Stack trace: ${error.stack}\n`);
+					}
 					new Notice(`Error creating file: ${safeMessage}`);
 					safeConsoleError("Error creating file:", error);
 					safeConsoleError("File path was:", filePath);
@@ -485,19 +468,52 @@ export default class ScriptoriumPlugin extends Plugin {
 					// Continue anyway - file was created
 				}
 
-				// Open the new file in Obsidian workspace (use active leaf or create new)
-				try {
-					const leaf = this.app.workspace.getMostRecentLeaf();
-					if (leaf) {
-						await leaf.openFile(file);
-					} else {
-						// Fallback: open in new leaf
-						const newLeaf = this.app.workspace.getLeaf("tab");
-						await newLeaf.openFile(file);
+				// For .adoc files, ensure file is visible in explorer but don't auto-open
+				if (file.extension === "adoc" || file.extension === "asciidoc") {
+					console.error(`[Scriptorium] AsciiDoc file created: ${file.path}`);
+					process.stderr.write(`[Scriptorium] AsciiDoc file created: ${file.path}\n`);
+					
+					// File should be visible in Obsidian's file explorer automatically
+					// since we used vault.create(). The file explorer will refresh automatically.
+					// We don't auto-open to prevent crashes (obsidian-asciidoc plugin handles opening)
+					
+					new Notice(`Created ${filename} in ${folderPath}. Install obsidian-asciidoc plugin to edit in Obsidian.`);
+				} else {
+					// Open the new file in Obsidian workspace (use active leaf or create new)
+					// Use a small delay to ensure file is fully created before opening
+					console.error(`[Scriptorium] Waiting before opening file...`);
+					process.stderr.write(`[Scriptorium] Waiting before opening file...\n`);
+					await new Promise(resolve => setTimeout(resolve, 200));
+					
+					try {
+						console.error(`[Scriptorium] Attempting to open file: ${file.path} (extension: ${file.extension})`);
+						process.stderr.write(`[Scriptorium] Attempting to open file: ${file.path} (extension: ${file.extension})\n`);
+						
+						const leaf = this.app.workspace.getMostRecentLeaf();
+						if (leaf && leaf.view) {
+							await leaf.openFile(file, { active: true });
+							console.error(`[Scriptorium] File opened successfully in existing leaf`);
+							process.stderr.write(`[Scriptorium] File opened successfully in existing leaf\n`);
+						} else {
+							// Fallback: open in new leaf
+							const newLeaf = this.app.workspace.getLeaf("tab");
+							await newLeaf.openFile(file, { active: true });
+							console.error(`[Scriptorium] File opened successfully in new leaf`);
+							process.stderr.write(`[Scriptorium] File opened successfully in new leaf\n`);
+						}
+					} catch (error: any) {
+						const errorMsg = error?.message || String(error);
+						const stackTrace = error?.stack || "";
+						console.error(`[Scriptorium] Error opening file: ${errorMsg}`);
+						process.stderr.write(`[Scriptorium] Error opening file: ${errorMsg}\n`);
+						if (stackTrace) {
+							console.error(`[Scriptorium] Stack trace:`, stackTrace);
+							process.stderr.write(`[Scriptorium] Stack trace: ${stackTrace}\n`);
+						}
+						safeConsoleError("Error opening file:", error);
+						// File was created, just couldn't open it - show a notice
+						new Notice(`File created but couldn't open: ${file.name}`);
 					}
-				} catch (error: any) {
-					safeConsoleError("Error opening file:", error);
-					// File was created, just couldn't open it
 				}
 
 				new Notice(`Created ${filename} in ${folderPath}`);

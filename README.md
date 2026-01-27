@@ -3,122 +3,100 @@
 An Obsidian plugin for creating, editing, and publishing Nostr document events directly from your vault.
 
 **Author**: Silberengel  
-**Homepage**: https://gitcitadel.com  
-**Funding**: gitcitadel@getalby.com
+**Homepage of our development project**: https://gitcitadel.com  
+**Happy to receive Bitcoin-tips to our Lightning wallet**: gitcitadel@getalby.com
 
 ## Features
 
-- **Multiple Event Kinds**: Support for Markdown-formatted kinds (1, 11, 30023, 30817) and Asdciidoc-formatted kinds (30040, 30041, 30818).
-- **Bookstr Support**: Automatic parsing and splitting of e-books/publications into nested 30040/30041 structures
-- **Metadata Management**: YAML metadata files with validation per event kind
-- **Structure Preview**: Visual preview of publication structure before creating events
-- **Two-Step Workflow**: Create and sign events separately from publishing
-- **Relay Management**: Automatic fetching of relay lists (kind 10002) with AUTH support
-- **d-tag Normalization**: Automatic NIP-54 compliant d-tag generation from titles
+- Multiple event kinds: Markdown (1, 11, 30023, 30817) and AsciiDoc (30040, 30041, 30818) formats
+- Automatic book/publication parsing into nested 30040/30041 structures
+- YAML metadata management with validation
+- Structure preview before creating events
+- Two-step workflow: create/sign events separately from publishing
+- Automatic relay list fetching (kind 10002) with AUTH support
+- NIP-54 compliant d-tag normalization
 
 ## Installation
 
+### Quick Start
+
+Use the startup script to build, install, and launch Obsidian:
+
+```bash
+# First run (path required)
+./start-obsidian.sh ~/Documents/MyVault
+
+# Subsequent runs (path is saved)
+./start-obsidian.sh
+```
+
+The script automatically:
+- Installs npm dependencies
+- Builds and installs the plugin
+- Installs and enables obsidian-asciidoc (required for `.adoc` files)
+- Starts Obsidian with console logging
+
+**Generate a new Nostr key:**
+```bash
+./start-obsidian.sh --generate-key
+```
+Add the shown export command to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
+
 ### Manual Installation
 
-1. Clone this repository
-2. Run `npm install`.obsidian/plugins/scriptorium-obsidian/
-3. Run `npm run build`
-4. Create the plugin directory in your Obsidian vault (if it doesn't exist):
-   - Navigate to your vault's root directory
-   - Create `.obsidian/plugins/scriptorium-obsidian/` directory
-5. Copy the `main.js` and `manifest.json` files to `.obsidian/plugins/scriptorium-obsidian/`
-6. Reload Obsidian and enable the plugin in Settings → Community Plugins
-
-**Note**: The `.obsidian` folder is hidden by default. You may need to show hidden files in your file manager to see it.
+1. Clone repo → `npm install` → `npm run build`
+2. Copy `main.js` and `manifest.json` to `.obsidian/plugins/scriptorium-obsidian/`
+3. Enable in Obsidian Settings → Community Plugins
+4. Install [obsidian-asciidoc](https://github.com/dzruyk/obsidian-asciidoc) plugin (required for `.adoc` files)
 
 ## Setup
 
-### Private Key Configuration
+### Private Key
 
-You have three options to set your private key:
+The plugin only loads keys from the `SCRIPTORIUM_OBSIDIAN_KEY` environment variable:
 
-**Option 1: Manual Entry (Easiest)**
-1. Open Obsidian settings → Scriptorium Nostr
-2. Enter your private key in the password field
-3. Click "Set Key"
+```bash
+# Set in terminal
+export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
 
-**Option 2: File in Vault (Most Reliable)**
-1. Create a file named `.scriptorium_key` in your vault root
-2. Put your private key on a single line (nsec1... or 64-char hex)
-3. Open plugin settings and click "Refresh"
+# Make permanent (add to ~/.bashrc or ~/.zshrc)
+echo 'export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."' >> ~/.bashrc
+```
 
-**Option 3: Environment Variable**
-1. Set `SCRIPTORIUM_OBSIDIAN_KEY` in your terminal:
-   ```bash
-   export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
-   ```
-2. **Important:** Launch Obsidian from the same terminal:
-   ```bash
-   obsidian
-   ```
-   (If Obsidian is already running, close it and restart from the terminal)
-3. Open plugin settings → Scriptorium Nostr
-4. Click "Refresh" to load your private key
+**Important:** Launch Obsidian from the terminal where the variable is set, or use the startup script. Desktop shortcuts won't have access to the variable.
 
-**Note:** Environment variables are only available to processes launched from the terminal where they were set. If you launch Obsidian from a desktop shortcut or application menu, it won't have access to the environment variable. You must launch Obsidian from the terminal where you set the variable.
+### Relays
 
-See [ENV_SETUP.md](ENV_SETUP.md) for detailed instructions on setting environment variables.
-
-**Key Format:** `nsec1...` (bech32) or 64-character hex string
-
-### Relay Configuration
-
-1. Open Obsidian settings → Scriptorium Nostr
+1. Open Settings → Scriptorium Nostr
 2. Click "Fetch" to get your relay list from Nostr relays
-3. The plugin will automatically fetch from `wss://profiles.nostr1.com`, `wss://relay.damus.io`, and `wss://thecitadel.nostr1.com`
+3. Relays are automatically fetched from default relays
 
 ## Usage
 
 ### Creating Events
 
 1. Open a Markdown or AsciiDoc file
-2. Run command: `Create Nostr Events`
-3. If metadata doesn't exist, it will be created with defaults
-4. For AsciiDoc documents with structure (`= Title`), a preview will be shown
-5. Events are created, signed, and saved to `{filename}_events.jsonl`
+2. Run: `Create Nostr Events`
+3. Events are created, signed, and saved to `{filename}_events.jsonl`
 
-### Editing Metadata
+### Publishing
 
-1. Open a file
-2. Run command: `Edit Metadata`
-3. Fill in the metadata form
-4. Save
+1. Ensure events exist (`{filename}_events.jsonl`)
+2. Run: `Publish Events to Relays`
+3. Events publish to all configured write relays
 
-### Publishing Events
+### Other Commands
 
-1. Ensure events have been created (check for `{filename}_events.jsonl`)
-2. Run command: `Publish Events to Relays`
-3. Events will be published to all configured write relays
-
-### Previewing Structure
-
-1. Open an AsciiDoc file with structure
-2. Run command: `Preview Document Structure`
-3. Review the event hierarchy before creating
+- `Edit Metadata` - Open metadata form for current file
+- `Preview Document Structure` - Show event hierarchy (AsciiDoc only)
 
 ## File Formats
 
 - **Markdown** (`.md`): Kinds 1, 11, 30023, 30817
-- **AsciiDoc** (`.adoc`, `.asciidoc`): Kinds 30041, 30818
-- **AsciiDoc with Structure** (starts with `= Title`): Kind 30040 with nested 30041 events
+- **AsciiDoc** (`.adoc`): Kinds 30040, 30041, 30818
+- **Structured AsciiDoc** (starts with `= Title`): Kind 30040 with nested 30041 events
 
-## Metadata Files
-
-Metadata is stored as `{filename}_metadata.yml` in the same directory as the document.
-
-For 30040 events, the title is derived from the document header (`= Title`) but can be overridden in the metadata file.
-
-## Commands
-
-- `Create Nostr Events` - Create and sign events from current file
-- `Preview Document Structure` - Show event hierarchy preview
-- `Publish Events to Relays` - Publish from .jsonl file to relays
-- `Edit Metadata` - Open metadata form for current file
+Metadata is stored as `{filename}_metadata.yml` in the same directory.
 
 ## Development
 
@@ -131,9 +109,3 @@ npm run build  # Production build
 ## License
 
 MIT
-
-## Author
-
-**Silberengel**  
-- Homepage: https://gitcitadel.com
-- Funding: gitcitadel@getalby.com
