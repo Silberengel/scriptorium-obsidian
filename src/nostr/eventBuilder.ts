@@ -67,6 +67,7 @@ export function getNpubFromPrivkey(privkey: string): string {
 
 /**
  * Build tags array from metadata
+ * Automatically adds published_at tag with current UNIX timestamp for all replaceable event kinds
  */
 export function buildTagsFromMetadata(
 	metadata: EventMetadata,
@@ -74,6 +75,11 @@ export function buildTagsFromMetadata(
 	childEvents?: Array<{ kind: number; dTag: string; eventId?: string }>
 ): string[][] {
 	const tags: string[][] = [];
+	
+	// All event kinds in this plugin are replaceable (0-9999 range)
+	// Add published_at tag automatically with current UNIX timestamp
+	const publishedAt = Math.floor(Date.now() / 1000).toString();
+	tags.push(["published_at", publishedAt]);
 
 	switch (metadata.kind) {
 		case 1:
@@ -108,7 +114,6 @@ export function buildTagsFromMetadata(
 			if (metadata.title) tags.push(["title", metadata.title]);
 			if (metadata.image) tags.push(["image", metadata.image]);
 			if (metadata.summary) tags.push(["summary", metadata.summary]);
-			if (metadata.published_at) tags.push(["published_at", metadata.published_at]);
 			if (metadata.topics) {
 				metadata.topics.forEach((topic) => tags.push(["t", topic]));
 			}
@@ -176,7 +181,6 @@ export function buildTagsFromMetadata(
 			// Stand-alone 30041 can have same tags as 30023
 			if (meta30041.image) tags.push(["image", meta30041.image]);
 			if (meta30041.summary) tags.push(["summary", meta30041.summary]);
-			if (meta30041.published_at) tags.push(["published_at", meta30041.published_at]);
 			if (meta30041.topics) {
 				meta30041.topics.forEach((topic) => tags.push(["t", topic]));
 			}

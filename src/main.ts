@@ -1,4 +1,4 @@
-import { Plugin, TFile, Notice } from "obsidian";
+import { Plugin, TFile, Notice, Menu } from "obsidian";
 import { ScriptoriumSettings, EventKind, DEFAULT_SETTINGS } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { NewDocumentModal } from "./ui/newDocumentModal";
@@ -65,9 +65,31 @@ export default class ScriptoriumPlugin extends Plugin {
 				callback: () => this.handleNewDocument(),
 			});
 
-			// Add ribbon icon for creating new documents
-			this.addRibbonIcon("file-plus", "New Nostr Document", () => {
-				this.handleNewDocument();
+			// Add ribbon icon with menu for Nostr actions
+			const ribbonIcon = this.addRibbonIcon("zap", "Nostr", () => {
+				// Create and show menu
+				const menu = new Menu();
+				menu.addItem((item) => {
+					item.setTitle("Write Nostr note")
+						.setIcon("file-plus")
+						.onClick(() => this.handleNewDocument());
+				});
+				menu.addItem((item) => {
+					item.setTitle("Create Nostr events")
+						.setIcon("file-check")
+						.onClick(() => this.handleCreateEvents());
+				});
+				menu.addItem((item) => {
+					item.setTitle("Publish events to relays")
+						.setIcon("upload")
+						.onClick(() => this.handlePublishEvents());
+				});
+				
+				// Show menu at the ribbon icon position
+				if (ribbonIcon) {
+					const rect = ribbonIcon.getBoundingClientRect();
+					menu.showAtPosition({ x: rect.left, y: rect.bottom + 5 });
+				}
 			});
 
 			// Status bar
@@ -163,17 +185,15 @@ export default class ScriptoriumPlugin extends Plugin {
 				}
 
 				// Create default content based on kind
+				// Note: This content will be replaced by writeMetadata() which formats
+				// the file properly with metadata. We just need minimal content here.
 				let content = "";
-				if (kind === 30040) {
-					// AsciiDoc document header for 30040
+				if (kind === 30040 || kind === 30041 || kind === 30818) {
+					// AsciiDoc files - minimal content, writeMetadata will format properly
 					content = `= ${title}\n\n`;
-				} else if (kind === 30023 || kind === 30817 || kind === 30818) {
-					// Add title as heading for other kinds that require title
-					if (kind === 30817 || kind === 30818) {
-						content = `# ${title}\n\n`;
-					} else {
-						content = `# ${title}\n\n`;
-					}
+				} else if (kind === 30023 || kind === 30817) {
+					// Markdown files - add title as heading
+					content = `# ${title}\n\n`;
 				} else if (kind === 1 || kind === 11) {
 					// For kind 1 and 11, add a simple placeholder
 					content = `\n`;
@@ -207,8 +227,8 @@ export default class ScriptoriumPlugin extends Plugin {
 
 				// Create metadata with title preset from the filename
 				const metadata = createDefaultMetadata(kind);
-				// Always set title if provided (even for kind 1 where it's optional)
-				if (title && title.trim()) {
+				// Set title if provided (skip for kind 1 which doesn't have title)
+				if (kind !== 1 && title && title.trim()) {
 					(metadata as any).title = title.trim();
 				}
 				

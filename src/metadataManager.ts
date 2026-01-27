@@ -14,9 +14,6 @@ interface TagDefinition {
 
 const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
 	1: [
-		{ key: "title", description: "Note title (optional)", required: false },
-		{ key: "author", description: "Author name", required: false },
-		{ key: "summary", description: "Brief summary", required: false },
 		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
 	],
 	11: [
@@ -30,7 +27,6 @@ const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
 		{ key: "author", description: "Author name", required: false },
 		{ key: "summary", description: "Article summary", required: false },
 		{ key: "image", description: "Image URL", required: false },
-		{ key: "published_at", description: "Unix timestamp of first publication", required: false },
 		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
 	],
 	30040: [
@@ -52,7 +48,6 @@ const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
 		{ key: "title", description: "Chapter/section title (required)", required: true },
 		{ key: "image", description: "Image URL", required: false },
 		{ key: "summary", description: "Article summary", required: false },
-		{ key: "published_at", description: "Unix timestamp of first publication", required: false },
 		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
 		// Note: NKBIP-08 tags (collection_id, title_id, chapter_id, section_id, version_tag) 
 		// are only used when 30041 is nested under 30040, not for stand-alone 30041 events
@@ -214,14 +209,21 @@ function parseAsciiDocAttributes(content: string): { metadata: Record<string, an
 				}
 			}
 			bodyStartIndex = i + 1;
-		} else if (foundTitle && line === "") {
-			// Empty line after title/attributes - body starts after this
-			bodyStartIndex = i + 1;
-			break;
-		} else if (foundTitle && !line.startsWith(":")) {
-			// Non-attribute line after title - body starts here
-			bodyStartIndex = i;
-			break;
+			continue;
+		}
+		
+		// Handle blank lines and body start
+		if (foundTitle) {
+			if (line === "") {
+				// Empty line - continue parsing in case there are more attributes after blank line
+				// (for backwards compatibility), but update body start index
+				bodyStartIndex = i + 1;
+				continue;
+			} else if (!line.startsWith(":")) {
+				// Non-attribute, non-empty line after title - body starts here
+				bodyStartIndex = i;
+				break;
+			}
 		}
 	}
 	
@@ -231,6 +233,7 @@ function parseAsciiDocAttributes(content: string): { metadata: Record<string, an
 
 /**
  * Filter out placeholder values from metadata
+ * Also removes published_at as it's automatically generated during event creation
  */
 function filterPlaceholders(metadata: Record<string, any>, kind: EventKind): Record<string, any> {
 	const filtered: Record<string, any> = {};
@@ -239,6 +242,11 @@ function filterPlaceholders(metadata: Record<string, any>, kind: EventKind): Rec
 		// Always keep kind
 		if (key === "kind") {
 			filtered[key] = value;
+			continue;
+		}
+		
+		// Remove published_at - it's automatically generated during event creation
+		if (key === "published_at") {
 			continue;
 		}
 		
@@ -356,7 +364,21 @@ export async function writeMetadata(
 		if (isMarkdownFile(file)) {
 			const { body } = parseMarkdownFrontmatter(currentContent);
 			const frontmatter = formatMarkdownFrontmatter(metadata);
-			const newContent = frontmatter ? `---\n${frontmatter}---\n${body}` : body;
+			
+			// If body is empty or only whitespace, add default content
+			const trimmedBody = body.trim();
+			let finalBody = body;
+			if (!trimmedBody || trimmedBody.length === 0) {
+				// For kind 1, just add placeholder text (no header)
+				if (metadata.kind === 1) {
+					finalBody = `place your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays`;
+				} else {
+					// For other kinds, add level-one header (#) with default text
+					finalBody = `# This is the first header in this document\n\nplace your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays`;
+				}
+			}
+			
+			const newContent = frontmatter ? `---\n${frontmatter}---\n${finalBody}` : finalBody;
 			await app.vault.modify(file, newContent);
 		} else if (isAsciiDocFile(file)) {
 			// For AsciiDoc, we need to preserve the title if it exists in the body
@@ -391,13 +413,13 @@ export async function writeMetadata(
 			const actualBody = bodyLines.slice(actualBodyStart).join("\n");
 			
 			// Format new content with title + attributes + body
+			// Note: No blank line between document header and attributes (AsciiDoc spec)
 			const lines: string[] = [];
 			if (titleLine) {
 				lines.push(titleLine);
 			} else if (metadata.title) {
 				lines.push(`= ${metadata.title}`);
 			}
-			lines.push("");
 			
 			// Add all predefined attributes with placeholders or actual values
 			const kind = metadata.kind;
@@ -450,9 +472,30 @@ export async function writeMetadata(
 				}
 			}
 			
+			// Add blank line after attributes (before body content)
 			lines.push("");
 			
-			const newContent = lines.join("\n") + actualBody;
+			// If body is empty or only whitespace, add default content with level-one header
+			const trimmedBody = actualBody.trim();
+			if (!trimmedBody || trimmedBody.length === 0) {
+				// Add level-one header (==) with default text (title is already in doc header)
+				lines.push(`== This is the first header in this document`);
+				lines.push("");
+				lines.push("place your content here");
+				lines.push("");
+				lines.push("---");
+				lines.push("");
+				lines.push("**How to use this app:**");
+				lines.push("1. Edit your content above");
+				lines.push("2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar");
+				lines.push("3. Select \"Create Nostr events\" to create and sign events");
+				lines.push("4. Select \"Publish events to relays\" to publish to relays");
+			} else {
+				// Use existing body content
+				lines.push(actualBody);
+			}
+			
+			const newContent = lines.join("\n");
 			await app.vault.modify(file, newContent);
 		}
 	} catch (error) {

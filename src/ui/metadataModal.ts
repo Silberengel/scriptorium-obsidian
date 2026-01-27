@@ -34,28 +34,31 @@ export class MetadataModal extends Modal {
 				});
 		}
 
-		new Setting(contentEl)
-			.setName("Author")
-			.setDesc("Author name")
-			.addText((text) => {
-				text.setValue(this.metadata.author || "")
-					.setPlaceholder("Enter author")
-					.onChange((value) => {
-						this.metadata.author = value;
-					});
-			});
+		// Author and Summary are not shown for kind 1
+		if (this.metadata.kind !== 1) {
+			new Setting(contentEl)
+				.setName("Author")
+				.setDesc("Author name")
+				.addText((text) => {
+					text.setValue(this.metadata.author || "")
+						.setPlaceholder("Enter author")
+						.onChange((value) => {
+							this.metadata.author = value;
+						});
+				});
 
-		new Setting(contentEl)
-			.setName("Summary")
-			.setDesc("Brief summary or description")
-			.addTextArea((text) => {
-				text.setValue(this.metadata.summary || "")
-					.setPlaceholder("Enter summary")
-					.onChange((value) => {
-						this.metadata.summary = value;
-					});
-				text.inputEl.rows = 3;
-			});
+			new Setting(contentEl)
+				.setName("Summary")
+				.setDesc("Brief summary or description")
+				.addTextArea((text) => {
+					text.setValue(this.metadata.summary || "")
+						.setPlaceholder("Enter summary")
+						.onChange((value) => {
+							this.metadata.summary = value;
+						});
+					text.inputEl.rows = 3;
+				});
+		}
 
 		// Kind-specific fields
 		this.renderKindSpecificFields(contentEl);
@@ -116,17 +119,6 @@ export class MetadataModal extends Modal {
 					.setPlaceholder("https://...")
 					.onChange((value) => {
 						meta.image = value;
-					});
-			});
-
-		new Setting(container)
-			.setName("Published At")
-			.setDesc("Unix timestamp of first publication")
-			.addText((text) => {
-				text.setValue(meta.published_at || "")
-					.setPlaceholder("Unix timestamp")
-					.onChange((value) => {
-						meta.published_at = value;
 					});
 			});
 

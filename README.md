@@ -86,9 +86,10 @@ author: "Author Name"
 summary: "Article summary"
 image: "https://example.com/image.jpg"
 topics: "bitcoin, nostr"
-published_at: "1234567890"
 ---
 ```
+
+**Note**: The `published_at` tag is automatically generated with the current UNIX timestamp during event creation for all replaceable event kinds. It should not be included in metadata and will be ignored if present.
 
 ### AsciiDoc Files (`.adoc`)
 
@@ -175,8 +176,8 @@ All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers onl
 
 ### Stand-alone vs Nested 30041
 
-- **Stand-alone 30041**: Uses NKBIP-01 tags (d, title, image, summary, published_at, topics)
-- **Nested 30041** (under 30040): Uses NKBIP-08 tags
+- **Stand-alone 30041**: Uses NKBIP-01 tags (d, title, image, summary, topics) plus automatically-generated `published_at`
+- **Nested 30041** (under 30040): Uses NKBIP-08 tags plus automatically-generated `published_at`
   - **Two-level structure** (book + chapters): 30041 events are chapters (c tag from chapter title, no s tag)
   - **Three-level structure** (book + chapters + sections): 30041 events are sections (c tag from parent chapter, s tag from section title)
   - All nested 30041 events inherit C tag (collection_id) and v tag (version_tag) from root 30040
@@ -185,6 +186,8 @@ All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers onl
 ## Metadata Fields
 
 All predefined metadata fields are shown in frontmatter/attributes with placeholder descriptions. Remove or update placeholders you don't need. Placeholder values are automatically skipped when creating events.
+
+**Important**: The `published_at` tag is automatically generated with the current UNIX timestamp during event creation for all replaceable event kinds (all event kinds supported by this plugin). Do not include `published_at` in your metadata - it will be automatically added and any existing `published_at` values in metadata will be ignored.
 
 ### Common Fields
 
@@ -198,7 +201,7 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 ### Kind-Specific Fields
 
 **30023 (Article)**:
-- `published_at` - Unix timestamp
+- No additional fields beyond common ones
 
 **30040 (Publication Index)**:
 - `type` - Publication type (book, illustrated, magazine, documentation, academic, blog)
@@ -211,7 +214,7 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 - `version_tag` - NKBIP-08 version identifier (v tag) - If set in root 30040, inherited by all events in the hierarchy
 
 **30041 (Publication Content)**:
-- **Stand-alone**: Same as 30023 (image, summary, published_at, topics)
+- **Stand-alone**: Same as 30023 (image, summary, topics)
 - **Nested** (under 30040): NKBIP-08 tags
   - `collection_id` - Inherited from root 30040 (C tag)
   - `title_id` - From root 30040 book title (T tag)

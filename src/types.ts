@@ -55,7 +55,6 @@ export interface Kind30023Metadata extends BaseMetadata {
 	kind: 30023;
 	title: string; // mandatory
 	image?: string;
-	published_at?: string;
 	topics?: string[]; // t tags
 }
 
@@ -92,7 +91,6 @@ export interface Kind30041Metadata extends BaseMetadata {
 	title: string; // mandatory
 	// Stand-alone 30041 can have same tags as 30023
 	image?: string;
-	published_at?: string;
 	topics?: string[]; // t tags
 	// NKBIP-08 tags (only for nested 30041 under 30040)
 	collection_id?: string; // C tag (inherited from root 30040)
