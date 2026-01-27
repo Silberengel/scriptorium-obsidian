@@ -79,6 +79,30 @@ function getPlaceholder(key: string, kind: EventKind): string {
 }
 
 /**
+ * Get description of event kind and what it's typically used for
+ */
+function getEventKindDescription(kind: EventKind): string {
+	switch (kind) {
+		case 1:
+			return "**Event Kind 1 (Normal Note)**: Simple text notes for quick thoughts, reminders, or short messages. Good for everyday notes and casual posts.";
+		case 11:
+			return "**Event Kind 11 (Discussion Thread OP)**: Opening post for a discussion thread. Good for starting conversations and topic discussions.";
+		case 30023:
+			return "**Event Kind 30023 (Long-form Article)**: Structured articles with title, summary, and image support. Good for blog posts, essays, and detailed articles.";
+		case 30040:
+			return "**Event Kind 30040 (Publication Index)**: Publication index for books, magazines, or documentation. Supports hierarchical structure with chapters and sections. Good for books, documentation, and structured publications.";
+		case 30041:
+			return "**Event Kind 30041 (Publication Content)**: Content for publications, either stand-alone or nested under a 30040 index. Good for chapters, sections, or individual publication pieces.";
+		case 30817:
+			return "**Event Kind 30817 (Wiki Page - Markdown)**: Wiki-style pages using Markdown format. Good for knowledge bases, documentation, and collaborative content.";
+		case 30818:
+			return "**Event Kind 30818 (Wiki Page - AsciiDoc)**: Wiki-style pages using AsciiDoc format. Good for knowledge bases, documentation, and collaborative content with advanced formatting.";
+		default:
+			return "";
+	}
+}
+
+/**
  * Check if a value is a placeholder (still has the description)
  */
 function isPlaceholder(value: any, key: string, kind: EventKind): boolean {
@@ -375,10 +399,10 @@ export async function writeMetadata(
 			if (!trimmedBody || trimmedBody.length === 0 || isOnlyHeader) {
 				// For kind 1, just add placeholder text (no header)
 				if (metadata.kind === 1) {
-					finalBody = `place your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays`;
+					finalBody = `place your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays\n\n${getEventKindDescription(metadata.kind)}`;
 				} else {
 					// For other kinds, add level-one header (#) with default text
-					finalBody = `# This is the first header in this document\n\nplace your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays`;
+					finalBody = `# This is the first header in this document\n\nplace your content here\n\n---\n\n**How to use this app:**\n1. Edit your content above\n2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar\n3. Select "Create Nostr events" to create and sign events\n4. Select "Publish events to relays" to publish to relays\n\n${getEventKindDescription(metadata.kind)}`;
 				}
 			}
 			
@@ -482,19 +506,49 @@ export async function writeMetadata(
 			// If body is empty or only whitespace, add default content with level-one header
 			const trimmedBody = actualBody.trim();
 			if (!trimmedBody || trimmedBody.length === 0) {
-				// Add level-one header (==) with default text (title is already in doc header)
-				lines.push(`== This is the first header in this document`);
-				lines.push("");
-				lines.push("place your content here");
-				lines.push("");
-				lines.push("---");
-				lines.push("");
-				lines.push("**How to use this app:**");
-				lines.push("");
-				lines.push("1. Edit your content above");
-				lines.push("2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar");
-				lines.push("3. Select \"Create Nostr events\" to create and sign events");
-				lines.push("4. Select \"Publish events to relays\" to publish to relays");
+				// For kind 30040, provide structured example with chapters and sub-chapters
+				if (metadata.kind === 30040) {
+					lines.push(`== This is the first chapter header`);
+					lines.push("");
+					lines.push(`=== This is the first sub-chapter header`);
+					lines.push("");
+					lines.push("place your content here");
+					lines.push("");
+					lines.push(`=== This is the second sub-chapter header`);
+					lines.push("");
+					lines.push("place your content here");
+					lines.push("");
+					lines.push(`== This is the second chapter header`);
+					lines.push("");
+					lines.push("place your content here");
+					lines.push("");
+					lines.push("---");
+					lines.push("");
+					lines.push("**How to use this app:**");
+					lines.push("");
+					lines.push("1. Edit your content above");
+					lines.push("2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar");
+					lines.push("3. Select \"Create Nostr events\" to create and sign events");
+					lines.push("4. Select \"Publish events to relays\" to publish to relays");
+					lines.push("");
+					lines.push(getEventKindDescription(metadata.kind));
+				} else {
+					// For other AsciiDoc kinds, add level-one header (==) with default text
+					lines.push(`== This is the first header in this document`);
+					lines.push("");
+					lines.push("place your content here");
+					lines.push("");
+					lines.push("---");
+					lines.push("");
+					lines.push("**How to use this app:**");
+					lines.push("");
+					lines.push("1. Edit your content above");
+					lines.push("2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar");
+					lines.push("3. Select \"Create Nostr events\" to create and sign events");
+					lines.push("4. Select \"Publish events to relays\" to publish to relays");
+					lines.push("");
+					lines.push(getEventKindDescription(metadata.kind));
+				}
 			} else {
 				// Use existing body content
 				lines.push(actualBody);
