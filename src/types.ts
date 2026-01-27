@@ -31,6 +31,7 @@ export interface BaseMetadata {
 	author?: string;
 	published_on?: string;
 	summary?: string;
+	topics?: string[]; // t tags (available for all event kinds)
 }
 
 /**
@@ -89,7 +90,11 @@ export interface Kind30040Metadata extends BaseMetadata {
 export interface Kind30041Metadata extends BaseMetadata {
 	kind: 30041;
 	title: string; // mandatory
-	// NKBIP-08 tags
+	// Stand-alone 30041 can have same tags as 30023
+	image?: string;
+	published_at?: string;
+	topics?: string[]; // t tags
+	// NKBIP-08 tags (only for nested 30041 under 30040)
 	collection_id?: string; // C tag
 	title_id?: string; // T tag
 	chapter_id?: string; // c tag
@@ -103,6 +108,8 @@ export interface Kind30041Metadata extends BaseMetadata {
 export interface Kind30817Metadata extends BaseMetadata {
 	kind: 30817;
 	title: string; // mandatory
+	image?: string;
+	topics?: string[]; // t tags
 }
 
 /**
@@ -111,6 +118,8 @@ export interface Kind30817Metadata extends BaseMetadata {
 export interface Kind30818Metadata extends BaseMetadata {
 	kind: 30818;
 	title: string; // mandatory
+	image?: string;
+	topics?: string[]; // t tags
 }
 
 /**

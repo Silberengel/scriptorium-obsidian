@@ -1,5 +1,5 @@
 import { finalizeEvent, getEventHash, getPublicKey, nip19 } from "nostr-tools";
-import { EventKind, EventMetadata, SignedEvent } from "../types";
+import { EventKind, EventMetadata, SignedEvent, Kind30041Metadata } from "../types";
 import { sanitizeString } from "../utils/security";
 
 /**
@@ -76,11 +76,26 @@ export function buildTagsFromMetadata(
 
 	switch (metadata.kind) {
 		case 1:
-			// No special tags required
+			// No special tags required (title is optional)
+			if (metadata.title) {
+				tags.push(["title", metadata.title]);
+			}
+			// Topics available for all events
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
 			break;
 
 		case 11:
-			// No special tags required
+			// Thread OP
+			if (!metadata.title) {
+				throw new Error("Title is mandatory for kind 11");
+			}
+			if (metadata.title) tags.push(["title", metadata.title]);
+			// Topics available for all events
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
 			break;
 
 		case 30023:
@@ -125,6 +140,10 @@ export function buildTagsFromMetadata(
 				if (metadata.derivative_pubkey) eTag.push(metadata.derivative_pubkey);
 				tags.push(eTag);
 			}
+			// Topics available for all events
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
 			// NKBIP-08 tags
 			if (metadata.collection_id) tags.push(["C", metadata.collection_id]);
 			if (metadata.version_tag) tags.push(["v", metadata.version_tag]);
@@ -149,12 +168,22 @@ export function buildTagsFromMetadata(
 			}
 			tags.push(["d", normalizeDTag(metadata.title)]);
 			if (metadata.title) tags.push(["title", metadata.title]);
-			// NKBIP-08 tags
-			if (metadata.collection_id) tags.push(["C", metadata.collection_id]);
-			if (metadata.title_id) tags.push(["T", metadata.title_id]);
-			if (metadata.chapter_id) tags.push(["c", metadata.chapter_id]);
-			if (metadata.section_id) tags.push(["s", metadata.section_id]);
-			if (metadata.version_tag) tags.push(["v", metadata.version_tag]);
+			
+			const meta30041 = metadata as Kind30041Metadata;
+			// Stand-alone 30041 can have same tags as 30023
+			if (meta30041.image) tags.push(["image", meta30041.image]);
+			if (meta30041.summary) tags.push(["summary", meta30041.summary]);
+			if (meta30041.published_at) tags.push(["published_at", meta30041.published_at]);
+			if (meta30041.topics) {
+				meta30041.topics.forEach((topic) => tags.push(["t", topic]));
+			}
+			
+			// NKBIP-08 tags (only for nested 30041 under 30040)
+			if (meta30041.collection_id) tags.push(["C", meta30041.collection_id]);
+			if (meta30041.title_id) tags.push(["T", meta30041.title_id]);
+			if (meta30041.chapter_id) tags.push(["c", meta30041.chapter_id]);
+			if (meta30041.section_id) tags.push(["s", meta30041.section_id]);
+			if (meta30041.version_tag) tags.push(["v", meta30041.version_tag]);
 			break;
 
 		case 30817:
@@ -165,6 +194,11 @@ export function buildTagsFromMetadata(
 			tags.push(["d", normalizeDTag(metadata.title)]);
 			if (metadata.title) tags.push(["title", metadata.title]);
 			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			const meta30817 = metadata as any;
+			if (meta30817.image) tags.push(["image", meta30817.image]);
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
 			break;
 
 		case 30818:
@@ -175,6 +209,11 @@ export function buildTagsFromMetadata(
 			tags.push(["d", normalizeDTag(metadata.title)]);
 			if (metadata.title) tags.push(["title", metadata.title]);
 			if (metadata.summary) tags.push(["summary", metadata.summary]);
+			const meta30818 = metadata as any;
+			if (meta30818.image) tags.push(["image", meta30818.image]);
+			if (metadata.topics) {
+				metadata.topics.forEach((topic) => tags.push(["t", topic]));
+			}
 			break;
 	}
 

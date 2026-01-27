@@ -15,7 +15,7 @@ import {
 	getPubkeyFromPrivkey,
 } from "./nostr/eventBuilder";
 import { parseAsciiDocStructure } from "./asciidocParser";
-import { readMetadata, mergeWithHeaderTitle } from "./metadataManager";
+import { readMetadata, mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
 
 /**
  * Build events from a simple document (non-AsciiDoc)
@@ -27,8 +27,10 @@ export async function buildSimpleEvent(
 	privkey: string,
 	app: any
 ): Promise<SignedEvent[]> {
+	// Strip metadata from content before publishing
+	const cleanContent = stripMetadataFromContent(file, content);
 	const tags = buildTagsFromMetadata(metadata, getPubkeyFromPrivkey(privkey));
-	const event = createSignedEvent(metadata.kind, content, tags, privkey);
+	const event = createSignedEvent(metadata.kind, cleanContent, tags, privkey);
 	return [event];
 }
 
@@ -50,8 +52,12 @@ export async function buildAsciiDocEvents(
 	const events: SignedEvent[] = [];
 	const pubkey = getPubkeyFromPrivkey(privkey);
 
+	// Strip metadata attributes from content before parsing structure
+	// (but keep the title header for structure parsing)
+	const cleanContent = stripMetadataFromContent(file, content);
+	
 	// Parse structure
-	const header = parseAsciiDocStructure(content, metadata as Kind30040Metadata);
+	const header = parseAsciiDocStructure(cleanContent, metadata as Kind30040Metadata);
 	if (header.length === 0) {
 		errors.push("Failed to parse AsciiDoc structure");
 		return { events: [], structure: [], errors };
@@ -63,10 +69,11 @@ export async function buildAsciiDocEvents(
 	// Recursively build events from structure
 	async function buildEventsFromNode(node: StructureNode, parentMetadata?: Kind30040Metadata): Promise<void> {
 		if (node.kind === 30041) {
-			// Content event
+			// Content event - nested under 30040, so use NKBIP-08 tags
 			const contentMetadata: Kind30041Metadata = {
 				kind: 30041,
 				title: node.title,
+				// Inherit NKBIP-08 tags from parent 30040
 				collection_id: parentMetadata?.collection_id,
 				title_id: parentMetadata ? normalizeDTag(parentMetadata.title) : undefined,
 				chapter_id: node.dTag,
@@ -82,9 +89,31 @@ export async function buildAsciiDocEvents(
 			// Index event - need to build children first
 			const childEvents: Array<{ kind: number; dTag: string; eventId?: string }> = [];
 
-			// Build all children first
+			// Merge parent metadata with node metadata for nested 30040 events
+			// Inherit NKBIP-08 tags from parent if this is a nested 30040
+			const baseMetadata = node.metadata as Kind30040Metadata;
+			const mergedMetadata: Kind30040Metadata = {
+				...baseMetadata,
+				kind: 30040,
+				title: node.title,
+				// Inherit NKBIP-08 tags from parent 30040 if present
+				collection_id: parentMetadata?.collection_id || baseMetadata.collection_id,
+				version_tag: parentMetadata?.version_tag || baseMetadata.version_tag,
+				// Inherit other 30040 tags from parent
+				author: parentMetadata?.author || baseMetadata.author,
+				type: parentMetadata?.type || baseMetadata.type,
+				version: parentMetadata?.version || baseMetadata.version,
+				published_on: parentMetadata?.published_on || baseMetadata.published_on,
+				published_by: parentMetadata?.published_by || baseMetadata.published_by,
+				summary: parentMetadata?.summary || baseMetadata.summary,
+				source: parentMetadata?.source || baseMetadata.source,
+				image: parentMetadata?.image || baseMetadata.image,
+				auto_update: parentMetadata?.auto_update || baseMetadata.auto_update,
+			};
+
+			// Build all children first, passing merged metadata as parent
 			for (const child of node.children) {
-				await buildEventsFromNode(child, node.metadata as Kind30040Metadata);
+				await buildEventsFromNode(child, mergedMetadata);
 				
 				// Find the event we just created for this child
 				const childEvent = events.find((e) => {
@@ -102,17 +131,10 @@ export async function buildAsciiDocEvents(
 			}
 
 			// Now build this index event with references to children
-			const baseMetadata = node.metadata as Kind30040Metadata;
-			const indexMetadata: Kind30040Metadata = {
-				...baseMetadata,
-				kind: 30040,
-				title: node.title,
-			};
-
-			const tags = buildTagsFromMetadata(indexMetadata, pubkey, childEvents);
+			const tags = buildTagsFromMetadata(mergedMetadata, pubkey, childEvents);
 			const event = createSignedEvent(30040, "", tags, privkey);
 			events.push(event);
-			node.metadata = indexMetadata;
+			node.metadata = mergedMetadata;
 		}
 	}
 

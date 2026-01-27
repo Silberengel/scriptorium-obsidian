@@ -1,34 +1,293 @@
-import * as yaml from "js-yaml";
 import { TFile } from "obsidian";
 import { EventKind, EventMetadata } from "./types";
 import { safeConsoleError } from "./utils/security";
 
 /**
- * Get metadata file path for a given file
+ * Tag definitions with descriptions for each event kind
  */
-export function getMetadataFilePath(file: TFile): string {
-	const path = file.path;
-	const ext = file.extension;
-	const basePath = path.slice(0, -(ext.length + 1)); // Remove extension and dot
-	return `${basePath}_metadata.yml`;
+interface TagDefinition {
+	key: string;
+	description: string;
+	required?: boolean;
+}
+
+const TAG_DEFINITIONS: Record<EventKind, TagDefinition[]> = {
+	1: [
+		{ key: "title", description: "Note title (optional)", required: false },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "summary", description: "Brief summary", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+	],
+	11: [
+		{ key: "title", description: "Thread title (required)", required: true },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "summary", description: "Brief summary", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+	],
+	30023: [
+		{ key: "title", description: "Article title (required)", required: true },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "summary", description: "Article summary", required: false },
+		{ key: "image", description: "Image URL", required: false },
+		{ key: "published_at", description: "Unix timestamp of first publication", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+	],
+	30040: [
+		{ key: "title", description: "Publication title (required)", required: true },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "type", description: "Publication type: book, illustrated, magazine, documentation, academic, blog", required: false },
+		{ key: "version", description: "Version or edition", required: false },
+		{ key: "published_on", description: "Publication date (e.g., 2003-05-13)", required: false },
+		{ key: "published_by", description: "Publisher or source", required: false },
+		{ key: "summary", description: "Brief description", required: false },
+		{ key: "source", description: "URL to original source", required: false },
+		{ key: "image", description: "Cover image URL", required: false },
+		{ key: "auto_update", description: "Auto-update: yes, ask, or no", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+		{ key: "collection_id", description: "NKBIP-08 collection identifier (C tag)", required: false },
+		{ key: "version_tag", description: "NKBIP-08 version identifier (e.g., kjv, drb)", required: false },
+	],
+	30041: [
+		{ key: "title", description: "Chapter/section title (required)", required: true },
+		{ key: "image", description: "Image URL", required: false },
+		{ key: "summary", description: "Article summary", required: false },
+		{ key: "published_at", description: "Unix timestamp of first publication", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+		// Note: NKBIP-08 tags (collection_id, title_id, chapter_id, section_id, version_tag) 
+		// are only used when 30041 is nested under 30040, not for stand-alone 30041 events
+	],
+	30817: [
+		{ key: "title", description: "Wiki page title (required)", required: true },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "summary", description: "Brief summary", required: false },
+		{ key: "image", description: "Image URL", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+	],
+	30818: [
+		{ key: "title", description: "Wiki page title (required)", required: true },
+		{ key: "author", description: "Author name", required: false },
+		{ key: "summary", description: "Brief summary", required: false },
+		{ key: "image", description: "Image URL", required: false },
+		{ key: "topics", description: "Comma-separated topics (e.g., 'bitcoin, nostr')", required: false },
+	],
+};
+
+/**
+ * Get placeholder value for a tag
+ */
+function getPlaceholder(key: string, kind: EventKind): string {
+	const definitions = TAG_DEFINITIONS[kind];
+	const def = definitions.find(d => d.key === key);
+	return def ? def.description : `Enter ${key}`;
 }
 
 /**
- * Read metadata from YAML file
+ * Check if a value is a placeholder (still has the description)
+ */
+function isPlaceholder(value: any, key: string, kind: EventKind): boolean {
+	if (value === null || value === undefined || value === "") return true;
+	if (typeof value !== "string") return false;
+	const placeholder = getPlaceholder(key, kind);
+	// Check if the value exactly matches the placeholder or contains it as a substring
+	return value === placeholder || value.trim() === placeholder || value.includes(placeholder);
+}
+
+/**
+ * Parse YAML frontmatter from Markdown file
+ */
+function parseMarkdownFrontmatter(content: string): { metadata: Record<string, any>; body: string } {
+	const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+	const match = content.match(frontmatterRegex);
+	
+	if (!match) {
+		return { metadata: {}, body: content };
+	}
+	
+	const frontmatterText = match[1];
+	const body = match[2];
+	const metadata: Record<string, any> = {};
+	
+	// Simple YAML parser for frontmatter (key: value pairs)
+	const lines = frontmatterText.split("\n");
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed || trimmed.startsWith("#")) continue;
+		
+		const colonIndex = trimmed.indexOf(":");
+		if (colonIndex === -1) continue;
+		
+		const key = trimmed.substring(0, colonIndex).trim();
+		let value = trimmed.substring(colonIndex + 1).trim();
+		
+		// Remove quotes if present
+		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+			value = value.slice(1, -1);
+		}
+		
+		// Parse arrays (simple format: [item1, item2] or - item1)
+		if (value.startsWith("[") && value.endsWith("]")) {
+			const arrayContent = value.slice(1, -1).trim();
+			metadata[key] = arrayContent.split(",").map(item => item.trim().replace(/^["']|["']$/g, ""));
+		} else if (trimmed.startsWith("-")) {
+			// Array item
+			const arrayKey = lines[lines.indexOf(line) - 1]?.split(":")[0]?.trim();
+			if (arrayKey) {
+				if (!metadata[arrayKey]) metadata[arrayKey] = [];
+				metadata[arrayKey].push(value.replace(/^-\s*/, "").replace(/^["']|["']$/g, ""));
+			}
+		} else {
+			// Try to parse as number or boolean
+			if (value === "true") {
+				metadata[key] = true;
+			} else if (value === "false") {
+				metadata[key] = false;
+			} else if (/^-?\d+$/.test(value)) {
+				metadata[key] = parseInt(value, 10);
+			} else {
+				metadata[key] = value;
+			}
+			
+			// Ensure kind is a number
+			if (key === "kind" && typeof metadata[key] === "string") {
+				metadata[key] = parseInt(metadata[key] as string, 10);
+			}
+		}
+	}
+	
+	return { metadata, body };
+}
+
+/**
+ * Parse AsciiDoc header attributes
+ */
+function parseAsciiDocAttributes(content: string): { metadata: Record<string, any>; body: string } {
+	const metadata: Record<string, any> = {};
+	const lines = content.split("\n");
+	let bodyStartIndex = 0;
+	
+	// Find where the document body starts (after title and attributes)
+	let foundTitle = false;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i].trim();
+		
+		// Document title (single =)
+		if (line.startsWith("=") && !line.startsWith("==") && !foundTitle) {
+			const title = line.slice(1).trim();
+			metadata.title = title;
+			foundTitle = true;
+			bodyStartIndex = i + 1;
+			continue;
+		}
+		
+		// Attribute lines (:key: value or :key!: value)
+		if (line.startsWith(":") && line.includes(":")) {
+			const colonIndex = line.indexOf(":", 1);
+			if (colonIndex !== -1) {
+				let key = line.substring(1, colonIndex).trim();
+				const isRequired = key.endsWith("!");
+				if (isRequired) {
+					key = key.slice(0, -1);
+				}
+				let value = line.substring(colonIndex + 1).trim();
+				
+				// Remove quotes if present
+				if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+					value = value.slice(1, -1);
+				}
+				
+				// Try to parse as number or boolean
+				if (value === "true") {
+					metadata[key] = true;
+				} else if (value === "false") {
+					metadata[key] = false;
+				} else if (/^-?\d+$/.test(value)) {
+					metadata[key] = parseInt(value, 10);
+				} else {
+					metadata[key] = value;
+				}
+				
+				// Ensure kind is a number
+				if (key === "kind" && typeof metadata[key] === "string") {
+					metadata[key] = parseInt(metadata[key] as string, 10);
+				}
+			}
+			bodyStartIndex = i + 1;
+		} else if (foundTitle && line === "") {
+			// Empty line after title/attributes - body starts after this
+			bodyStartIndex = i + 1;
+			break;
+		} else if (foundTitle && !line.startsWith(":")) {
+			// Non-attribute line after title - body starts here
+			bodyStartIndex = i;
+			break;
+		}
+	}
+	
+	const body = lines.slice(bodyStartIndex).join("\n");
+	return { metadata, body };
+}
+
+/**
+ * Filter out placeholder values from metadata
+ */
+function filterPlaceholders(metadata: Record<string, any>, kind: EventKind): Record<string, any> {
+	const filtered: Record<string, any> = {};
+	
+	for (const [key, value] of Object.entries(metadata)) {
+		// Always keep kind
+		if (key === "kind") {
+			filtered[key] = value;
+			continue;
+		}
+		
+		// Skip placeholder values
+		if (isPlaceholder(value, key, kind)) {
+			continue;
+		}
+		
+		// For arrays, filter out placeholder items
+		if (Array.isArray(value)) {
+			const filteredArray = value.filter((item: any) => !isPlaceholder(item, key, kind));
+			if (filteredArray.length > 0) {
+				filtered[key] = filteredArray;
+			}
+		} else if (value !== "" && value != null) {
+			filtered[key] = value;
+		}
+	}
+	
+	return filtered;
+}
+
+/**
+ * Read metadata from file content (frontmatter or AsciiDoc attributes)
  */
 export async function readMetadata(
 	file: TFile,
 	app: any
 ): Promise<EventMetadata | null> {
-	const metadataPath = getMetadataFilePath(file);
 	try {
-		const metadataFile = app.vault.getAbstractFileByPath(metadataPath);
-		if (!metadataFile || !(metadataFile instanceof TFile)) {
-			return null;
+		const content = await app.vault.read(file);
+		
+		if (file.extension === "md" || file.extension === "markdown") {
+			const { metadata } = parseMarkdownFrontmatter(content);
+			if (Object.keys(metadata).length === 0) {
+				return null;
+			}
+			const kind = (metadata.kind as EventKind) || 1;
+			const filtered = filterPlaceholders(metadata, kind);
+			return filtered as EventMetadata;
+		} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+			const { metadata } = parseAsciiDocAttributes(content);
+			if (Object.keys(metadata).length === 0) {
+				return null;
+			}
+			const kind = (metadata.kind as EventKind) || 30040;
+			const filtered = filterPlaceholders(metadata, kind);
+			return filtered as EventMetadata;
 		}
-		const content = await app.vault.read(metadataFile);
-		const parsed = yaml.load(content) as any;
-		return parsed as EventMetadata;
+		
+		return null;
 	} catch (error) {
 		safeConsoleError("Error reading metadata:", error);
 		return null;
@@ -36,28 +295,212 @@ export async function readMetadata(
 }
 
 /**
- * Write metadata to YAML file
+ * Strip frontmatter/attributes from content for publishing
+ * For AsciiDoc, keeps the title header but removes attribute lines
+ */
+export function stripMetadataFromContent(file: TFile, content: string): string {
+	if (file.extension === "md" || file.extension === "markdown") {
+		const { body } = parseMarkdownFrontmatter(content);
+		return body;
+	} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+		const lines = content.split("\n");
+		const result: string[] = [];
+		let foundTitle = false;
+		let inAttributes = false;
+		
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i].trim();
+			
+			// Keep title header (single =)
+			if (line.startsWith("=") && !line.startsWith("==") && !foundTitle) {
+				result.push(lines[i]);
+				foundTitle = true;
+				inAttributes = true;
+				continue;
+			}
+			
+			// Skip attribute lines (but keep empty lines after title)
+			if (inAttributes && line.startsWith(":")) {
+				continue;
+			}
+			
+			// If we hit a non-empty, non-attribute line after title, we're in the body
+			if (inAttributes && line !== "") {
+				inAttributes = false;
+			}
+			
+			// Add all body lines
+			if (!inAttributes || line === "") {
+				result.push(lines[i]);
+			}
+		}
+		
+		return result.join("\n");
+	}
+	return content;
+}
+
+/**
+ * Write metadata to file content (as frontmatter or AsciiDoc attributes)
  */
 export async function writeMetadata(
 	file: TFile,
 	metadata: EventMetadata,
 	app: any
 ): Promise<void> {
-	const metadataPath = getMetadataFilePath(file);
-	const yamlContent = yaml.dump(metadata, {
-		indent: 2,
-		lineWidth: -1,
-	});
-	
-	// Check if metadata file already exists
-	const existingMetadataFile = app.vault.getAbstractFileByPath(metadataPath);
-	if (existingMetadataFile && existingMetadataFile instanceof TFile) {
-		// Update existing file
-		await app.vault.modify(existingMetadataFile, yamlContent);
-	} else {
-		// Create new file using vault.create() so it shows up in Obsidian
-		await app.vault.create(metadataPath, yamlContent);
+	try {
+		const currentContent = await app.vault.read(file);
+		
+		if (file.extension === "md" || file.extension === "markdown") {
+			const { body } = parseMarkdownFrontmatter(currentContent);
+			const frontmatter = formatMarkdownFrontmatter(metadata);
+			const newContent = frontmatter ? `---\n${frontmatter}---\n${body}` : body;
+			await app.vault.modify(file, newContent);
+		} else if (file.extension === "adoc" || file.extension === "asciidoc") {
+			// For AsciiDoc, we need to preserve the title if it exists in the body
+			// and remove old attributes
+			const { body } = parseAsciiDocAttributes(currentContent);
+			const bodyLines = body.split("\n");
+			
+			// Find title line if it exists
+			let titleLine: string | null = null;
+			let bodyStartIndex = 0;
+			for (let i = 0; i < bodyLines.length; i++) {
+				const line = bodyLines[i].trim();
+				if (line.startsWith("=") && !line.startsWith("==")) {
+					titleLine = bodyLines[i];
+					bodyStartIndex = i + 1;
+					break;
+				}
+			}
+			
+			// Get body content (after title, skipping empty lines and old attributes)
+			let actualBodyStart = bodyStartIndex;
+			for (let i = bodyStartIndex; i < bodyLines.length; i++) {
+				const line = bodyLines[i].trim();
+				if (line === "") {
+					actualBodyStart = i + 1;
+				} else if (line.startsWith(":")) {
+					actualBodyStart = i + 1;
+				} else {
+					break;
+				}
+			}
+			const actualBody = bodyLines.slice(actualBodyStart).join("\n");
+			
+			// Format new content with title + attributes + body
+			const lines: string[] = [];
+			if (titleLine) {
+				lines.push(titleLine);
+			} else if (metadata.title) {
+				lines.push(`= ${metadata.title}`);
+			}
+			lines.push("");
+			
+			// Add all predefined attributes with placeholders or actual values
+			const kind = metadata.kind;
+			const definitions = TAG_DEFINITIONS[kind];
+			const meta = metadata as any;
+			
+			// Add all predefined tags
+			for (const def of definitions) {
+				const value = meta[def.key];
+				
+				// For title: if it's in the header, still include it in attributes if it's set in metadata
+				// This ensures the title is visible and can be edited
+				if (def.key === "title" && titleLine && value && !isPlaceholder(value, def.key, kind)) {
+					// Title is in header, but also include it in attributes for visibility
+					lines.push(`:${def.key}: ${value}`);
+					continue;
+				}
+				
+				// Skip title attribute if it's only in header and not set in metadata
+				if (def.key === "title" && titleLine && (!value || isPlaceholder(value, def.key, kind))) {
+					continue;
+				}
+				
+				if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, def.key, kind)) {
+					// Use actual value
+					if (Array.isArray(value)) {
+						lines.push(`:${def.key}: ${value.join(", ")}`);
+					} else {
+						lines.push(`:${def.key}: ${value}`);
+					}
+				} else {
+					// Use placeholder
+					lines.push(`:${def.key}: ${getPlaceholder(def.key, kind)}`);
+				}
+			}
+			
+			// Always include kind
+			lines.push(`:kind: ${kind}`);
+			
+			// Add any custom attributes that aren't in the definitions
+			for (const [key, value] of Object.entries(meta)) {
+				if (key === "kind") continue;
+				if (definitions.some(d => d.key === key)) continue; // Already handled
+				if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, key, kind)) {
+					if (Array.isArray(value)) {
+						lines.push(`:${key}: ${value.join(", ")}`);
+					} else {
+						lines.push(`:${key}: ${value}`);
+					}
+				}
+			}
+			
+			lines.push("");
+			
+			const newContent = lines.join("\n") + actualBody;
+			await app.vault.modify(file, newContent);
+		}
+	} catch (error) {
+		safeConsoleError("Error writing metadata:", error);
+		throw error;
 	}
+}
+
+/**
+ * Format metadata as Markdown frontmatter with all predefined tags
+ */
+function formatMarkdownFrontmatter(metadata: EventMetadata): string {
+	const lines: string[] = [];
+	const kind = metadata.kind;
+	const definitions = TAG_DEFINITIONS[kind];
+	const meta = metadata as any;
+	
+	// Always include kind first
+	lines.push(`kind: ${kind}`);
+	
+	// Add all predefined tags with placeholders or actual values
+	for (const def of definitions) {
+		const value = meta[def.key];
+		if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, def.key, kind)) {
+			// Use actual value
+			if (Array.isArray(value)) {
+				lines.push(`${def.key}: [${value.map((t: string) => `"${t}"`).join(", ")}]`);
+			} else {
+				lines.push(`${def.key}: "${value}"`);
+			}
+		} else {
+			// Use placeholder
+			lines.push(`${def.key}: "${getPlaceholder(def.key, kind)}"`);
+		}
+	}
+	
+	// Add any custom tags that aren't in the definitions
+	for (const [key, value] of Object.entries(meta)) {
+		if (key === "kind") continue;
+		if (definitions.some(d => d.key === key)) continue; // Already handled
+		if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, key, kind)) {
+			if (Array.isArray(value)) {
+				lines.push(`${key}: [${value.map((t: string) => `"${t}"`).join(", ")}]`);
+			} else {
+				lines.push(`${key}: "${value}"`);
+			}
+		}
+	}
+	
+	return lines.join("\n") + "\n";
 }
 
 /**
@@ -77,8 +520,13 @@ export function validateMetadata(
 	// Validate based on kind
 	switch (kind) {
 		case 1:
+			// Title is optional for kind 1
+			break;
+
 		case 11:
-			// No special requirements
+			if (!metadata.title) {
+				errors.push("Title is mandatory for kind 11");
+			}
 			break;
 
 		case 30023:

@@ -4,6 +4,7 @@ import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { MetadataModal } from "./ui/metadataModal";
 import { StructurePreviewModal } from "./ui/structurePreviewModal";
 import { NewDocumentModal } from "./ui/newDocumentModal";
+import { MetadataReminderModal } from "./ui/metadataReminderModal";
 import { readMetadata, writeMetadata, createDefaultMetadata, validateMetadata, mergeWithHeaderTitle } from "./metadataManager";
 import { buildEvents } from "./eventManager";
 import { saveEvents, loadEvents, eventsFileExists } from "./eventStorage";
@@ -25,9 +26,8 @@ export default class ScriptoriumPlugin extends Plugin {
 			await this.loadSettings();
 			await this.loadPrivateKey();
 
-			// Note: We don't register file extensions for .yml, .yaml, .adoc, or .asciidoc files
+			// Note: We don't register file extensions for .adoc or .asciidoc files
 			// Users should install the obsidian-asciidoc plugin for .adoc file support
-			// YAML files can be edited with external editors or Obsidian may handle them natively
 			console.error("[Scriptorium] Plugin loaded - file extensions not registered");
 			process.stderr.write("[Scriptorium] Plugin loaded - file extensions not registered\n");
 			console.error("[Scriptorium] Install obsidian-asciidoc plugin for .adoc file editing support");
@@ -201,9 +201,12 @@ export default class ScriptoriumPlugin extends Plugin {
 			// Ensure folder structure exists before creating events
 			await this.ensureNostrNotesFolder(eventKind);
 
-			// Create default metadata if none exists
+			// Create default metadata if none exists and write it with placeholders
 			if (!metadata) {
 				metadata = createDefaultMetadata(eventKind);
+				await writeMetadata(file, metadata, this.app);
+				// Re-read to get the formatted version with placeholders
+				metadata = await readMetadata(file, this.app) || metadata;
 			}
 
 			// Merge with header title for 30040
@@ -212,40 +215,62 @@ export default class ScriptoriumPlugin extends Plugin {
 				metadata = mergeWithHeaderTitle(metadata, headerTitle);
 			}
 
-			// Validate metadata
-			const validation = validateMetadata(metadata, eventKind);
-			if (!validation.valid) {
-				new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
-				return;
-			}
+			// Show reminder modal before proceeding
+			new MetadataReminderModal(this.app, eventKind, async () => {
+				// Re-read metadata after user confirms (they may have updated it)
+				const updatedContent = await this.app.vault.read(file);
+				let updatedMetadata: EventMetadata = await readMetadata(file, this.app) || metadata || createDefaultMetadata(eventKind);
+				
+				// Ensure we have valid metadata
+				if (!updatedMetadata) {
+					updatedMetadata = createDefaultMetadata(eventKind);
+				}
 
-			// Build events
-			const result = await buildEvents(file, content, metadata, this.settings.privateKey, this.app);
+				// Merge with header title for 30040
+				if (eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
+					const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+					updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
+				}
 
-			if (result.errors.length > 0) {
-				new Notice(`Errors: ${result.errors.join(", ")}`);
-				return;
-			}
-
-			// Security check: verify events don't contain private keys
-			for (const event of result.events) {
-				if (!verifyEventSecurity(event)) {
-					new Notice("Security error: Event contains private key. Aborting.");
-					safeConsoleError("Event security check failed - event may contain private key");
+				// Validate metadata
+				const validation = validateMetadata(updatedMetadata, eventKind);
+				if (!validation.valid) {
+					new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
 					return;
 				}
-			}
 
-			// Show preview for structured documents
-			if (result.structure.length > 0) {
-				new StructurePreviewModal(this.app, result.structure, async () => {
+				// Build events
+				if (!this.settings.privateKey) {
+					new Notice("Please set your private key in settings");
+					return;
+				}
+				const result = await buildEvents(file, updatedContent, updatedMetadata, this.settings.privateKey, this.app);
+
+				if (result.errors.length > 0) {
+					new Notice(`Errors: ${result.errors.join(", ")}`);
+					return;
+				}
+
+				// Security check: verify events don't contain private keys
+				for (const event of result.events) {
+					if (!verifyEventSecurity(event)) {
+						new Notice("Security error: Event contains private key. Aborting.");
+						safeConsoleError("Event security check failed - event may contain private key");
+						return;
+					}
+				}
+
+				// Show preview for structured documents
+				if (result.structure.length > 0) {
+					new StructurePreviewModal(this.app, result.structure, async () => {
+						await saveEvents(file, result.events, this.app);
+						new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
+					}).open();
+				} else {
 					await saveEvents(file, result.events, this.app);
 					new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
-				}).open();
-			} else {
-				await saveEvents(file, result.events, this.app);
-				new Notice(`Created ${result.events.length} event(s) and saved to ${file.basename}_events.jsonl`);
-			}
+				}
+			}).open();
 		} catch (error: any) {
 			const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
 			new Notice(`Error creating events: ${safeMessage}`);
@@ -453,13 +478,15 @@ export default class ScriptoriumPlugin extends Plugin {
 					return;
 				}
 
-				// Create metadata
+				// Create metadata with title preset from the filename
 				const metadata = createDefaultMetadata(kind);
-				if (metadata.title === "" && title) {
-					(metadata as any).title = title;
+				// Always set title if provided (even for kind 1 where it's optional)
+				if (title && title.trim()) {
+					(metadata as any).title = title.trim();
 				}
 				
 				try {
+					// Write metadata with all placeholders (title will be included if set)
 					await writeMetadata(file, metadata, this.app);
 				} catch (error: any) {
 					const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";

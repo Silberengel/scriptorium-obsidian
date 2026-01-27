@@ -10,7 +10,7 @@ An Obsidian plugin for creating, editing, and publishing Nostr document events d
 
 - Multiple event kinds: Markdown (1, 11, 30023, 30817) and AsciiDoc (30040, 30041, 30818) formats
 - Automatic book/publication parsing into nested 30040/30041 structures
-- YAML metadata management with validation
+- Metadata stored in Markdown frontmatter and AsciiDoc header attributes
 - Structure preview before creating events
 - Two-step workflow: create/sign events separately from publishing
 - Automatic relay list fetching (kind 10002) with AUTH support
@@ -96,7 +96,33 @@ echo 'export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."' >> ~/.bashrc
 - **AsciiDoc** (`.adoc`): Kinds 30040, 30041, 30818
 - **Structured AsciiDoc** (starts with `= Title`): Kind 30040 with nested 30041 events
 
-Metadata is stored as `{filename}_metadata.yml` in the same directory.
+### Metadata
+
+Metadata is stored directly in the file:
+- **Markdown files**: YAML frontmatter at the top of the file (between `---` markers)
+- **AsciiDoc files**: Header attributes (lines starting with `:key: value`) after the title
+
+When publishing, metadata is automatically stripped from the content before creating events.
+
+Example Markdown frontmatter:
+```yaml
+---
+kind: 30023
+title: "My Article"
+author: "Author Name"
+summary: "Article summary"
+---
+```
+
+Example AsciiDoc attributes:
+```asciidoc
+= Book Title
+
+:kind: 30040
+:author: Author Name
+:type: book
+:summary: Book description
+```
 
 ## Development
 
