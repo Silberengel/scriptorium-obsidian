@@ -23,9 +23,8 @@ import {
 	summarizePublishResults,
 } from "../ui/publishResultsModal";
 import { log, logError } from "../utils/console";
-import { determineTemplate } from "../utils/eventKind";
+import { resolveTemplateForFile } from "../utils/eventKind";
 import {
-	resolveTemplate,
 	getFolderName,
 	getDocumentMarkup,
 	resolveSectionTemplate,
@@ -45,7 +44,7 @@ async function readDocumentMetadata(
 	settings: ScriptoriumSettings
 ): Promise<{ metadata: TemplateMetadata | null; template: KindTemplate }> {
 	const preliminary = await readMetadata(file, app);
-	const template = determineTemplate(file, content, settings, preliminary);
+	const template = resolveTemplateForFile(preliminary, settings, file, content);
 	const metadata = preliminary
 		? ((await readMetadata(file, app, template)) ?? preliminary)
 		: null;
@@ -137,7 +136,15 @@ export async function handleCreateEvents(
 					metadata ??
 					createDefaultMetadata(template);
 
-				const resolvedTemplate = resolveTemplate(updatedMetadata, settings);
+				const resolvedTemplate = resolveTemplateForFile(updatedMetadata, settings, file, updatedContent);
+				if (!updatedMetadata.templateId || updatedMetadata.templateId !== resolvedTemplate.id) {
+					updatedMetadata = {
+						...updatedMetadata,
+						templateId: resolvedTemplate.id,
+						kind: resolvedTemplate.kind,
+					};
+					await writeMetadata(file, updatedMetadata, app, resolvedTemplate, settings);
+				}
 
 				if (resolvedTemplate.structured) {
 					const markup = getDocumentMarkup(resolvedTemplate, settings, updatedMetadata);
@@ -159,7 +166,7 @@ export async function handleCreateEvents(
 				const docMarkup = getDocumentMarkup(resolvedTemplate, settings, updatedMetadata);
 				if (
 					resolvedTemplate.structured &&
-					isStructuredSourceDocument(updatedContent, docMarkup, file)
+					isStructuredSourceDocument(updatedContent, docMarkup, file, updatedMetadata)
 				) {
 					if (docMarkup === "asciidoc") {
 						const asciiDocValidation = validateAsciiDocDocument(updatedContent);
@@ -226,7 +233,7 @@ export async function handlePreviewStructure(
 		}
 
 		const markup = getDocumentMarkup(template, settings, metadata);
-		if (!isStructuredSourceDocument(content, markup, file)) {
+		if (!isStructuredSourceDocument(content, markup, file, metadata)) {
 			new Notice(`This file is not a valid hierarchical ${markup} document`);
 			return;
 		}
@@ -329,8 +336,9 @@ export async function handleEditMetadata(
 		}
 
 		new MetadataModal(app, metadata, template, async (updatedMetadata) => {
-			const resolved = resolveTemplate(updatedMetadata, settings);
-			await writeMetadata(file, updatedMetadata, app, resolved, settings);
+			const content = await app.vault.read(file);
+			const resolved = resolveTemplateForFile(updatedMetadata, settings, file, content);
+			await writeMetadata(file, { ...updatedMetadata, templateId: resolved.id, kind: resolved.kind }, app, resolved, settings);
 			new Notice("Metadata saved");
 		}).open();
 	} catch (error: unknown) {

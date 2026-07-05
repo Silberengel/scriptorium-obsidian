@@ -18,6 +18,7 @@ import {
 	createCustomTemplateScaffold,
 	createPublicationTemplate,
 	slugifyTemplateName,
+	finalizeCustomTemplateForSave,
 	getDocumentMarkup,
 } from "../templateRegistry";
 import { getNip01KindClass } from "../utils/nip01Kind";
@@ -272,10 +273,15 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 			template,
 			this.plugin.settings.kindTemplates,
 			async (updated) => {
-				updateKindTemplatesInSettings(this.plugin.settings, updated);
+				const finalized = finalizeCustomTemplateForSave(
+					this.plugin.settings,
+					updated,
+					template.id
+				);
+				updateKindTemplatesInSettings(this.plugin.settings, finalized, template.id);
 				await this.plugin.saveSettings();
 				await this.display();
-				new Notice("Template added");
+				new Notice(`Template saved: ${finalized.id}`);
 			}
 		).open();
 	}
@@ -346,10 +352,15 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					JSON.parse(JSON.stringify(template)),
 					this.plugin.settings.kindTemplates,
 					async (updated) => {
-						updateKindTemplatesInSettings(this.plugin.settings, updated, template.id);
+						const finalized = finalizeCustomTemplateForSave(
+							this.plugin.settings,
+							updated,
+							template.id
+						);
+						updateKindTemplatesInSettings(this.plugin.settings, finalized, template.id);
 						await this.plugin.saveSettings();
 						await this.display();
-						new Notice("Template saved");
+						new Notice(`Template saved: ${finalized.id}`);
 					}
 				).open();
 			});

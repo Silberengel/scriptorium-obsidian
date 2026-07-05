@@ -13,14 +13,15 @@ import {
 	createDTagAllocator,
 } from "./nostr/eventBuilder";
 import { buildTagsFromTemplate } from "./nostr/templateEventBuilder";
-import { parseDocumentStructure, isStructuredSourceDocument } from "./structureParser";
+import { parseDocumentStructure } from "./structureParser";
 import { mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
+import { getMarkdownBody, parseMarkdownDocumentHeader } from "./markdownParser";
 import {
-	resolveTemplate,
 	getDocumentMarkup,
 	resolveSectionTemplate,
 	getPublicationContentKinds,
 } from "./templateRegistry";
+import { resolveTemplateForFile } from "./utils/eventKind";
 
 function resolveAuthor(
 	metadata?: TemplateMetadata,
@@ -204,14 +205,38 @@ export async function buildEvents(
 	privkey: string,
 	settings: ScriptoriumSettings
 ): Promise<EventCreationResult> {
-	const template = resolveTemplate(metadata, settings);
+	const template = resolveTemplateForFile(metadata, settings, file, content);
+	const cleanContent = stripMetadataFromContent(file, content);
 	const markup = getDocumentMarkup(template, settings, metadata);
-	const hasStructure = template.structured && isStructuredSourceDocument(content, markup, file);
 
-	if (hasStructure && template.structured) {
-		const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
-		const mergedMetadata = mergeWithHeaderTitle(metadata, headerTitle);
-		return buildStructuredEvents(file, content, mergedMetadata, template, settings, privkey);
+	if (template.structured) {
+		let mergedMetadata = metadata;
+		if (markup === "asciidoc") {
+			const headerTitle = cleanContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+			mergedMetadata = mergeWithHeaderTitle(metadata, headerTitle);
+		} else if (markup === "markdown") {
+			const header = parseMarkdownDocumentHeader(getMarkdownBody(content));
+			if (header) mergedMetadata = mergeWithHeaderTitle(metadata, header.title);
+		}
+
+		const result = await buildStructuredEvents(
+			file,
+			content,
+			mergedMetadata,
+			template,
+			settings,
+			privkey
+		);
+
+		if (result.events.length === 0 && result.errors.length === 0) {
+			result.errors.push(
+				`Could not parse hierarchical ${markup} structure. ` +
+					(markup === "markdown"
+						? "Use # publication title and ## section headings."
+						: "Use = publication title and == section headings.")
+			);
+		}
+		return result;
 	}
 
 	const events = await buildSimpleEvent(file, content, metadata, template, privkey);

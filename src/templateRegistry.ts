@@ -1,3 +1,4 @@
+import { TFile } from "obsidian";
 import { DEFAULT_KIND_TEMPLATES } from "./defaultKindTemplates";
 import {
 	KindTemplate,
@@ -160,6 +161,73 @@ export function getTemplateById(id: string, settings: ScriptoriumSettings): Kind
 	return settings.kindTemplates.find((t) => t.id === id);
 }
 
+const GENERIC_SCAFFOLD_IDS = new Set(["my-template", "my-publication"]);
+
+/** Assign a stable id from the template name when still on a generic scaffold id; avoid duplicates. */
+export function finalizeCustomTemplateForSave(
+	settings: ScriptoriumSettings,
+	template: KindTemplate,
+	replaceId?: string
+): KindTemplate {
+	const copy = JSON.parse(JSON.stringify(template)) as KindTemplate;
+	if (copy.type !== "custom") return copy;
+
+	if (!copy.id?.trim() || GENERIC_SCAFFOLD_IDS.has(copy.id)) {
+		copy.id = slugifyTemplateName(copy.name) || "custom-template";
+	}
+
+	let candidate = copy.id;
+	let suffix = 2;
+	while (
+		settings.kindTemplates.some((t) => t.id === candidate && (!replaceId || t.id !== replaceId))
+	) {
+		candidate = `${copy.id}-${suffix++}`;
+	}
+	copy.id = candidate;
+	return copy;
+}
+
+/** Resolve a template from document metadata using id, name slug, path, or kind. */
+export function findTemplateForDocument(
+	metadata: Partial<TemplateMetadata>,
+	settings: ScriptoriumSettings,
+	file?: TFile
+): KindTemplate | undefined {
+	const templateId = metadata.templateId ? String(metadata.templateId).trim() : undefined;
+
+	if (templateId) {
+		const exact = getTemplateById(templateId, settings);
+		if (exact) return exact;
+
+		const loose = settings.kindTemplates.find(
+			(t) =>
+				t.id.toLowerCase() === templateId.toLowerCase() ||
+				slugifyTemplateName(t.name) === templateId
+		);
+		if (loose) return loose;
+	}
+
+	if (file) {
+		const inferred = inferTemplateFromFile(file, settings);
+		if (inferred) return inferred;
+	}
+
+	const kind =
+		typeof metadata.kind === "string" ? parseInt(metadata.kind, 10) : metadata.kind;
+	if (kind !== undefined && !Number.isNaN(kind)) {
+		const customs = settings.kindTemplates.filter((t) => t.type === "custom" && t.kind === kind);
+		if (customs.length === 1) return customs[0];
+		if (customs.length > 1 && templateId) {
+			const match = customs.find(
+				(t) => t.id === templateId || slugifyTemplateName(t.name) === templateId
+			);
+			if (match) return match;
+		}
+	}
+
+	return undefined;
+}
+
 export function getTemplatesByKind(kind: number, settings: ScriptoriumSettings): KindTemplate[] {
 	return settings.kindTemplates.filter((t) => t.kind === kind);
 }
@@ -185,6 +253,28 @@ export function resolveTemplate(
 	const fallback = getTemplateById(settings.defaultTemplateId, settings);
 	if (fallback) return fallback;
 	throw new Error("No template could be resolved for this document");
+}
+
+/** Match a document file to a custom template by folder + filename. */
+export function inferTemplateFromFile(
+	file: TFile,
+	settings: ScriptoriumSettings
+): KindTemplate | undefined {
+	const match = file.path.match(/^Nostr notes\/([^/]+)\/([^/]+)\.[^.]+$/);
+	if (!match) return undefined;
+	const [, folderName, basename] = match;
+
+	const exact = settings.kindTemplates.find(
+		(t) => t.type === "custom" && t.folderName === folderName && t.id === basename
+	);
+	if (exact) return exact;
+
+	const inFolder = settings.kindTemplates.filter(
+		(t) => t.type === "custom" && t.folderName === folderName
+	);
+	if (inFolder.length === 1) return inFolder[0];
+
+	return undefined;
 }
 
 export function getAllTemplates(settings: ScriptoriumSettings): KindTemplate[] {
@@ -231,8 +321,12 @@ export function resolveSectionKind(
 	if (!kinds.length) return undefined;
 
 	if (metadata?.sectionKind !== undefined && metadata.sectionMarkup) {
+		const sectionKind =
+			typeof metadata.sectionKind === "string"
+				? parseInt(metadata.sectionKind, 10)
+				: metadata.sectionKind;
 		const match = kinds.find(
-			(k) => k.kind === metadata.sectionKind && k.markup === metadata.sectionMarkup
+			(k) => k.kind === sectionKind && k.markup === metadata.sectionMarkup
 		);
 		if (match) return match;
 	}
@@ -511,12 +605,13 @@ export function validateTemplatesArray(templates: KindTemplate[]): TemplateValid
 	return { valid: errors.length === 0, errors, warnings };
 }
 
-export function createCustomTemplateScaffold(): KindTemplate {
+export function createCustomTemplateScaffold(name = "My Template"): KindTemplate {
+	const id = slugifyTemplateName(name) || "custom-template";
 	return {
-		id: "my-template",
+		id,
 		type: "custom",
 		kind: 30023,
-		name: "My Template",
+		name,
 		description: "Single-document template (article, note, wiki page)",
 		markup: "markdown",
 		structured: false,

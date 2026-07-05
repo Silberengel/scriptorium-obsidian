@@ -170,6 +170,15 @@ function parseAsciiDocAttributes(content: string): { metadata: Record<string, un
 	return { metadata, body: lines.slice(bodyStartIndex).join("\n") };
 }
 
+function normalizeMetadataTypes(metadata: Record<string, unknown>): void {
+	for (const key of ["kind", "sectionKind"] as const) {
+		const value = metadata[key];
+		if (typeof value === "string" && /^-?\d+$/.test(value)) {
+			metadata[key] = parseInt(value, 10);
+		}
+	}
+}
+
 function filterPlaceholders(metadata: Record<string, unknown>, template?: KindTemplate): Record<string, unknown> {
 	const filtered: Record<string, unknown> = {};
 	const fieldMap = new Map((template?.fields ?? []).map((f) => [f.key, f]));
@@ -197,22 +206,32 @@ function filterPlaceholders(metadata: Record<string, unknown>, template?: KindTe
 
 export async function readMetadata(
 	file: TFile,
-	app: { vault: { read: (f: TFile) => Promise<string> } },
+	app: {
+		vault: { read: (f: TFile) => Promise<string> };
+		metadataCache?: { getFileCache: (f: TFile) => { frontmatter?: Record<string, unknown> } | null };
+	},
 	template?: KindTemplate
 ): Promise<TemplateMetadata | null> {
 	try {
 		const content = await app.vault.read(file);
+		const cached = app.metadataCache?.getFileCache(file)?.frontmatter ?? {};
 
 		if (isMarkdownFile(file)) {
 			const { metadata } = parseMarkdownFrontmatter(content);
-			if (Object.keys(metadata).length === 0) return null;
-			return filterPlaceholders(metadata, template) as TemplateMetadata;
+			// Parsed file content is authoritative; cache only fills keys missing from the file.
+			const merged = { ...cached, ...metadata };
+			normalizeMetadataTypes(merged);
+			if (Object.keys(merged).length === 0) return null;
+			return filterPlaceholders(merged, template) as TemplateMetadata;
 		}
 
 		if (isAsciiDocFile(file)) {
 			const { metadata } = parseAsciiDocAttributes(content);
-			if (Object.keys(metadata).length === 0) return null;
-			return filterPlaceholders(metadata, template) as TemplateMetadata;
+			// Parsed file content is authoritative; cache only fills keys missing from the file.
+			const merged = { ...cached, ...metadata };
+			normalizeMetadataTypes(merged);
+			if (Object.keys(merged).length === 0) return null;
+			return filterPlaceholders(merged, template) as TemplateMetadata;
 		}
 
 		return null;
@@ -323,13 +342,13 @@ function appendDefaultBody(lines: string[], template: KindTemplate, documentMark
 			);
 		} else {
 			lines.push(
-				"# First chapter",
+				"## First chapter",
 				"",
-				"## First section",
+				"### First section",
 				"",
 				"Section body text here.",
 				"",
-				"## Second section",
+				"### Second section",
 				"",
 				"More section body text."
 			);
@@ -369,6 +388,9 @@ export async function writeMetadata(
 			if (!trimmedBody || isOnlyHeader) {
 				finalBody = "";
 				const lines: string[] = [];
+				if (template.structured && documentMarkup === "markdown" && metadata.title) {
+					lines.push(`# ${metadata.title}`, "");
+				}
 				appendDefaultBody(lines, template, documentMarkup);
 				finalBody = lines.join("\n");
 			}

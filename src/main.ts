@@ -150,6 +150,7 @@ export default class ScriptoriumPlugin extends Plugin {
 	private async handleCreateEvents() {
 		const file = await getCurrentFile(this.app);
 		if (!file) return;
+		ensureKindTemplates(this.settings);
 		await handleCreateEvents(this.app, file, this.settings, this.getPrivateKey());
 	}
 

@@ -23,8 +23,14 @@ export function parseMarkdownDocumentHeader(body: string): { title: string; rema
 	return null;
 }
 
-export function isMarkdownHierarchicalDocument(content: string): boolean {
-	return parseMarkdownDocumentHeader(getMarkdownBody(content)) !== null;
+export function isMarkdownHierarchicalDocument(
+	content: string,
+	metadata?: Partial<TemplateMetadata>
+): boolean {
+	const body = getMarkdownBody(content);
+	if (parseMarkdownDocumentHeader(body)) return true;
+	if (metadata?.title && /^#{2,6}\s+/m.test(body)) return true;
+	return /^#{2,6}\s+/m.test(body);
 }
 
 export function parseMarkdownSectionHeader(line: string): { level: number; title: string } | null {
@@ -39,20 +45,32 @@ export function parseMarkdownStructure(
 	indexKind = 30040,
 	contentKind = 30041
 ): StructureNode[] {
-	const header = parseMarkdownDocumentHeader(getMarkdownBody(content));
-	if (!header) return [];
+	const body = getMarkdownBody(content);
+	const header = parseMarkdownDocumentHeader(body);
 
-	const rootTitle = rootMetadata?.title || header.title;
+	let rootTitle: string;
+	let remaining: string;
+
+	if (header) {
+		rootTitle = String(rootMetadata?.title || header.title);
+		remaining = header.remaining;
+	} else if (rootMetadata?.title) {
+		rootTitle = String(rootMetadata.title);
+		remaining = body;
+	} else {
+		return [];
+	}
+
 	const rootNode: StructureNode = {
 		level: 0,
-		title: String(rootTitle),
-		dTag: normalizeDTag(String(rootTitle)),
+		title: rootTitle,
+		dTag: normalizeDTag(rootTitle),
 		kind: indexKind,
 		children: [],
 		metadata: rootMetadata,
 	};
 
-	const lines = header.remaining.split("\n");
+	const lines = remaining.split("\n");
 	const stack: StructureNode[] = [rootNode];
 	let currentContent: string[] = [];
 
