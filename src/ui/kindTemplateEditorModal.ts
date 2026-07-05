@@ -1,9 +1,6 @@
 import { App, Modal, Notice } from "obsidian";
 import { KindTemplate, ScriptoriumSettings } from "../types";
-import {
-	validateTemplate,
-	validateTemplatesArray,
-} from "../templateRegistry";
+import { parseKindTemplateJson, validateTemplate } from "../templateRegistry";
 
 export class KindTemplateEditorModal extends Modal {
 	private template: KindTemplate;
@@ -29,8 +26,9 @@ export class KindTemplateEditorModal extends Modal {
 		contentEl.empty();
 		contentEl.createEl("h2", { text: this.template.id ? `Edit Template: ${this.template.id}` : "New Template" });
 
+		this.renderHelp(contentEl);
+
 		this.errorEl = contentEl.createEl("div");
-		this.errorEl.style.color = "var(--text-error)";
 		this.errorEl.style.marginBottom = "1em";
 
 		this.textareaEl = contentEl.createEl("textarea");
@@ -46,51 +44,109 @@ export class KindTemplateEditorModal extends Modal {
 		});
 
 		buttonContainer.createEl("button", { text: "Save", cls: "mod-cta" }).addEventListener("click", () => {
-			if (this.runValidation(true)) {
-				try {
-					const parsed = JSON.parse(this.textareaEl!.value) as KindTemplate;
-					this.onSave(parsed);
-					this.close();
-				} catch (e) {
-					this.showError(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
-				}
+			const template = this.runValidation(true);
+			if (template) {
+				this.onSave(template);
+				this.close();
 			}
 		});
 
 		buttonContainer.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
 	}
 
-	private runValidation(forSave: boolean): boolean {
-		try {
-			const parsed = JSON.parse(this.textareaEl!.value) as KindTemplate;
-			const others = this.allTemplates.filter((t) => t.id !== parsed.id);
-			const result = validateTemplate(parsed, [...others, parsed]);
-			const arrayResult = validateTemplatesArray([...others, parsed]);
+	private renderHelp(container: HTMLElement): void {
+		const help = container.createEl("details", { cls: "scriptorium-template-editor-help" });
+		help.style.marginBottom = "1em";
+		help.style.fontSize = "var(--font-ui-small)";
+		help.style.color = "var(--text-muted)";
 
-			const messages = [...result.errors, ...arrayResult.errors];
-			const warnings = [...result.warnings, ...arrayResult.warnings];
+		help.createEl("summary", { text: "Template guide" });
 
-			if (messages.length > 0) {
-				this.showError(messages.join("\n"));
-				return false;
-			}
+		const body = help.createDiv();
+		body.style.marginTop = "0.5em";
 
-			if (warnings.length > 0) {
-				this.showError(`Warnings:\n${warnings.join("\n")}`, false);
-			} else {
-				this.showError(forSave ? "Valid" : "Validation passed", false, true);
-			}
-			return true;
-		} catch (e) {
-			this.showError(`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`);
-			return false;
-		}
+		body.createEl("p", {
+			text: "Templates define how documents are published as Nostr events. Edit the JSON below, then Validate or Save.",
+		});
+
+		body.createEl("p", { text: "Simple template (single document):" }).style.fontWeight = "600";
+		const simpleList = body.createEl("ul");
+		simpleList.style.marginTop = "0.25rem";
+		simpleList.createEl("li", { text: '"structured": false' });
+		simpleList.createEl("li", { text: '"markup": "markdown" or "asciidoc"' });
+		simpleList.createEl("li", { text: '"kind": NIP-01 event kind, e.g. 30023 for long-form articles' });
+
+		body.createEl("p", { text: "Structured publication (book, multi-chapter docs):" }).style.fontWeight =
+			"600";
+		body.createEl("p", {
+			text: "Requires two templates — create both, then link them:",
+		});
+
+		const structuredList = body.createEl("ol");
+		structuredList.style.marginTop = "0.25rem";
+		structuredList.createEl("li", {
+			text: 'Publication Content — "structured": false, "markup": "asciidoc", kind 30041 (chapters/sections)',
+		});
+		structuredList.createEl("li", {
+			text: 'Publication Index — "structured": true, "markup": "asciidoc", kind 30040, plus "contentTemplateId" set to the content template\'s id',
+		});
+
+		body.createEl("p", {
+			text: 'Use Settings → Add → "Publication Content" then "Publication Index" for ready-made scaffolds.',
+		});
 	}
 
-	private showError(message: string, isError = true, isSuccess = false) {
+	private runValidation(forSave: boolean): KindTemplate | null {
+		const parsed = parseKindTemplateJson(this.textareaEl!.value);
+		if (!parsed.success) {
+			this.showMessages(parsed.errors, true);
+			return null;
+		}
+
+		const others = this.allTemplates.filter((t) => t.id !== parsed.template.id);
+		const result = validateTemplate(parsed.template, [...others, parsed.template]);
+
+		if (result.errors.length > 0) {
+			this.showMessages(result.errors, true);
+			return null;
+		}
+
+		if (result.warnings.length > 0) {
+			this.showMessages(result.warnings, false);
+		} else {
+			this.showMessages([forSave ? "Valid" : "Validation passed"], false, true);
+		}
+		return parsed.template;
+	}
+
+	private showMessages(messages: string[], isError = true, isSuccess = false): void {
 		if (!this.errorEl) return;
-		this.errorEl.textContent = message;
-		this.errorEl.style.color = isSuccess ? "var(--text-success)" : isError ? "var(--text-error)" : "var(--text-muted)";
+		this.errorEl.empty();
+
+		const color = isSuccess
+			? "var(--text-success)"
+			: isError
+				? "var(--text-error)"
+				: "var(--text-muted)";
+		this.errorEl.style.color = color;
+
+		if (messages.length === 1) {
+			this.errorEl.textContent = messages[0];
+			return;
+		}
+
+		const heading = this.errorEl.createEl("p", {
+			text: isError ? `${messages.length} errors:` : `${messages.length} warnings:`,
+		});
+		heading.style.margin = "0 0 0.35rem";
+		heading.style.fontWeight = "600";
+
+		const list = this.errorEl.createEl("ul");
+		list.style.margin = "0";
+		list.style.paddingLeft = "1.25rem";
+		for (const message of messages) {
+			list.createEl("li", { text: message });
+		}
 	}
 
 	onClose() {

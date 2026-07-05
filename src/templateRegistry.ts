@@ -5,8 +5,7 @@ import {
 	ScriptoriumSettings,
 	TemplateMetadata,
 } from "./types";
-import { requiresDTag } from "./utils/nip01Kind";
-import { getNip01KindClass } from "./utils/nip01Kind";
+import { getNip01KindClass, requiresDTag, validateNip01Kind } from "./utils/nip01Kind";
 
 const SHIPPED_DEFAULT_IDS = new Set(DEFAULT_KIND_TEMPLATES.map((t) => t.id));
 
@@ -114,6 +113,59 @@ export interface TemplateValidationResult {
 	warnings: string[];
 }
 
+export type ParseKindTemplateResult =
+	| { success: true; template: KindTemplate }
+	| { success: false; errors: string[] };
+
+function describeInvalidKindInJson(raw: string): string | null {
+	const trimmed = raw.trim();
+	if (trimmed.startsWith('"')) {
+		return `kind must be an integer, not a quoted string (found ${trimmed}). Use a bare number like 30023.`;
+	}
+	if (!/^-?\d+$/.test(trimmed)) {
+		const value = trimmed.replace(/,$/, "");
+		return `kind must be an integer (NIP-01 event kind), but "${value}" is not valid JSON. Use a bare number like 30023 with no letters or extra characters.`;
+	}
+	return null;
+}
+
+function friendlyTemplateJsonErrors(text: string, error: unknown): string[] {
+	const kindMatch = text.match(/"kind"\s*:\s*([^,\r\n}]+)/);
+	if (kindMatch) {
+		const kindError = describeInvalidKindInJson(kindMatch[1]);
+		if (kindError) return [kindError];
+	}
+
+	const msg = error instanceof Error ? error.message : String(error);
+	const lineMatch = msg.match(/line (\d+)/i);
+	if (lineMatch) {
+		const lineNum = parseInt(lineMatch[1], 10);
+		const line = text.split("\n")[lineNum - 1]?.trim() ?? "";
+		if (line.includes('"kind"')) {
+			return [
+				`Invalid value for kind on line ${lineNum}. It must be a bare integer (NIP-01 event kind), e.g. 30023.`,
+			];
+		}
+	}
+
+	return [`Invalid JSON syntax: ${msg}`];
+}
+
+export function parseKindTemplateJson(text: string): ParseKindTemplateResult {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(text);
+	} catch (error) {
+		return { success: false, errors: friendlyTemplateJsonErrors(text, error) };
+	}
+
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return { success: false, errors: ["Template must be a JSON object"] };
+	}
+
+	return { success: true, template: parsed as KindTemplate };
+}
+
 export function validateTemplate(
 	template: KindTemplate,
 	allTemplates: KindTemplate[]
@@ -133,8 +185,9 @@ export function validateTemplate(
 	if (template.type === "custom" && SHIPPED_DEFAULT_IDS.has(template.id)) {
 		errors.push(`Cannot use shipped default id "${template.id}" for a custom template`);
 	}
-	if (!Number.isInteger(template.kind) || template.kind < 1 || template.kind > 65535) {
-		errors.push("kind must be an integer between 1 and 65535");
+	const kindError = validateNip01Kind(template.kind);
+	if (kindError) {
+		errors.push(kindError);
 	}
 	if (!template.name) {
 		errors.push("name is required");
@@ -143,11 +196,15 @@ export function validateTemplate(
 		errors.push('markup must be "markdown" or "asciidoc"');
 	}
 	if (template.structured && template.markup !== "asciidoc") {
-		errors.push("structured templates require asciidoc markup");
+		errors.push(
+			'structured templates require "markup": "asciidoc" (AsciiDoc headings define the publication hierarchy)'
+		);
 	}
 	if (template.structured) {
 		if (!template.contentTemplateId) {
-			errors.push("structured templates require contentTemplateId");
+			errors.push(
+				'structured templates require "contentTemplateId" — the id of a non-structured content template (create a Publication Content template first, then reference its id here)'
+			);
 		} else if (template.contentTemplateId === template.id) {
 			errors.push("contentTemplateId must not equal template id");
 		} else {
@@ -159,13 +216,13 @@ export function validateTemplate(
 			}
 		}
 	}
-	if (requiresDTag(template.kind)) {
+	if (!kindError && requiresDTag(template.kind)) {
 		const titleField = template.fields?.find((f) => f.tagType === "title");
 		if (!titleField || !titleField.required) {
 			errors.push("Addressable kinds require a title field with required: true");
 		}
 	}
-	if (getNip01KindClass(template.kind) === "ephemeral") {
+	if (!kindError && getNip01KindClass(template.kind) === "ephemeral") {
 		warnings.push("Ephemeral kinds (20000-29999) are not stored by relays");
 	}
 	if (!Array.isArray(template.fields) || template.fields.length === 0) {
@@ -214,12 +271,54 @@ export function createCustomTemplateScaffold(): KindTemplate {
 		type: "custom",
 		kind: 30023,
 		name: "My Template",
-		description: "",
+		description: "Single-document template (article, note, wiki page)",
 		markup: "markdown",
 		structured: false,
 		folderName: "my-templates",
 		fields: [
 			{ key: "title", tagType: "title", description: "Title", required: true },
+		],
+	};
+}
+
+/** Scaffold for chapter/section content used by a structured publication index. Create this first. */
+export function createStructuredContentTemplateScaffold(): KindTemplate {
+	return {
+		id: "my-publication-content",
+		type: "custom",
+		kind: 30041,
+		name: "My Publication Content",
+		description: "Chapter or section content for a structured publication",
+		markup: "asciidoc",
+		structured: false,
+		folderName: "my-publication-sections",
+		fields: [
+			{ key: "title", tagType: "title", description: "Section title (required)", required: true },
+			{ key: "summary", tagType: "text", description: "Brief summary", required: false },
+			{ key: "topics", tagType: "topics", description: "Comma-separated topics", required: false },
+		],
+	};
+}
+
+/** Scaffold for a structured publication index. Set contentTemplateId to your content template's id. */
+export function createStructuredIndexTemplateScaffold(
+	contentTemplateId = "my-publication-content"
+): KindTemplate {
+	return {
+		id: "my-publication-index",
+		type: "custom",
+		kind: 30040,
+		name: "My Publication Index",
+		description: "Root index for a multi-part publication (book, documentation, magazine)",
+		markup: "asciidoc",
+		structured: true,
+		contentTemplateId,
+		folderName: "my-publications",
+		fields: [
+			{ key: "title", tagType: "title", description: "Publication title (required)", required: true },
+			{ key: "author", tagType: "text", description: "Author name", required: false },
+			{ key: "summary", tagType: "text", description: "Brief description", required: false },
+			{ key: "topics", tagType: "topics", description: "Comma-separated topics", required: false },
 		],
 	};
 }

@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting, Notice, TextComponent } from "obsidian";
 import ScriptoriumPlugin from "../main";
+import { KindTemplate } from "../types";
 import {
 	fetchRelayList,
 	addTheCitadelIfMissing,
@@ -17,6 +18,8 @@ import {
 	resetAllTemplatesToDefaults,
 	isDeletableTemplate,
 	createCustomTemplateScaffold,
+	createStructuredContentTemplateScaffold,
+	createStructuredIndexTemplateScaffold,
 } from "../templateRegistry";
 import { getNip01KindClass } from "../utils/nip01Kind";
 import {
@@ -279,6 +282,20 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 			});
 	}
 
+	private openNewTemplateEditor(template: KindTemplate): void {
+		new KindTemplateEditorModal(
+			this.app,
+			template,
+			this.plugin.settings.kindTemplates,
+			async (updated) => {
+				updateKindTemplatesInSettings(this.plugin.settings, updated);
+				await this.plugin.saveSettings();
+				await this.display();
+				new Notice("Template added");
+			}
+		).open();
+	}
+
 	private renderKindTemplatesSection(containerEl: HTMLElement) {
 		containerEl.createEl("h3", { text: "Event Kind Templates" });
 		containerEl.createEl("p", {
@@ -354,20 +371,22 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Add Template")
-			.setDesc("Create a new custom template (JSON editor)")
+			.setDesc(
+				"Simple = one document. Structured publications need a Content template (sections) and an Index template (root) linked via contentTemplateId."
+			)
 			.addButton((button) => {
-				button.setButtonText("Add").setCta().onClick(() => {
-					new KindTemplateEditorModal(
-						this.app,
-						createCustomTemplateScaffold(),
-						this.plugin.settings.kindTemplates,
-						async (updated) => {
-							updateKindTemplatesInSettings(this.plugin.settings, updated);
-							await this.plugin.saveSettings();
-							await this.display();
-							new Notice("Template added");
-						}
-					).open();
+				button.setButtonText("Simple").setCta().onClick(() => {
+					this.openNewTemplateEditor(createCustomTemplateScaffold());
+				});
+			})
+			.addButton((button) => {
+				button.setButtonText("Publication Content").onClick(() => {
+					this.openNewTemplateEditor(createStructuredContentTemplateScaffold());
+				});
+			})
+			.addButton((button) => {
+				button.setButtonText("Publication Index").onClick(() => {
+					this.openNewTemplateEditor(createStructuredIndexTemplateScaffold());
 				});
 			});
 
