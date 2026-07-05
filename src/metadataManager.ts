@@ -1,5 +1,5 @@
 import { TFile } from "obsidian";
-import { KindTemplate, KindTemplateField, TemplateMetadata, MarkupFormat, ScriptoriumSettings } from "./types";
+import { KindTemplate, KindTemplateField, TemplateMetadata, MarkupFormat, ScriptoriumSettings, PublicationSectionKind } from "./types";
 import { getDocumentMarkup } from "./templateRegistry";
 import { safeConsoleError } from "./utils/security";
 import { isMarkdownFile, isAsciiDocFile } from "./utils/fileExtensions";
@@ -418,8 +418,9 @@ export async function writeMetadata(
 
 			lines.push(`:templateId: ${metadata.templateId}`);
 			lines.push(`:kind: ${metadata.kind}`);
-			if (metadata.sectionTemplateId) {
-				lines.push(`:sectionTemplateId: ${metadata.sectionTemplateId}`);
+			if (metadata.sectionKind !== undefined && metadata.sectionMarkup) {
+				lines.push(`:sectionKind: ${metadata.sectionKind}`);
+				lines.push(`:sectionMarkup: ${metadata.sectionMarkup}`);
 			}
 			lines.push("");
 
@@ -466,16 +467,19 @@ export function validateMetadata(
 export function createDefaultMetadata(
 	template: KindTemplate,
 	title?: string,
-	sectionTemplateId?: string
+	section?: PublicationSectionKind
 ): TemplateMetadata {
 	const metadata: TemplateMetadata = {
 		templateId: template.id,
 		kind: template.kind,
 	};
 
-	if (sectionTemplateId) metadata.sectionTemplateId = sectionTemplateId;
-	else if (template.structured && template.contentTemplateId) {
-		metadata.sectionTemplateId = template.contentTemplateId;
+	if (section) {
+		metadata.sectionKind = section.kind;
+		metadata.sectionMarkup = section.markup;
+	} else if (template.structured && template.contentKinds?.length) {
+		metadata.sectionKind = template.contentKinds[0].kind;
+		metadata.sectionMarkup = template.contentKinds[0].markup;
 	}
 
 	if (title?.trim() && template.kind !== 1) metadata.title = title.trim();
@@ -491,7 +495,7 @@ export function mergeWithHeaderTitle(
 	headerTitle: string
 ): TemplateMetadata {
 	const isPublication =
-		Boolean(metadata.sectionTemplateId) ||
+		(metadata.sectionKind !== undefined && Boolean(metadata.sectionMarkup)) ||
 		(metadata.kind >= 30040 && metadata.kind < 30050);
 	if (isPublication && (!metadata.title || String(metadata.title).trim() === "")) {
 		return { ...metadata, title: headerTitle };

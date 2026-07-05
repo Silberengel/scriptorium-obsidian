@@ -102,12 +102,11 @@
     "name": "Publication",
     "description": "Hierarchical publication: one source file splits into index and section Nostr events. Section kinds: 30041, 30818 (AsciiDoc); 30023, 30817 (Markdown).",
     "structured": true,
-    "contentTemplateId": "kind-30041-default",
-    "contentTemplateIds": [
-      "kind-30041-default",
-      "kind-30818-default",
-      "kind-30023-default",
-      "kind-30817-default"
+    "contentKinds": [
+      { "kind": 30041, "markup": "asciidoc" },
+      { "kind": 30818, "markup": "asciidoc" },
+      { "kind": 30023, "markup": "markdown" },
+      { "kind": 30817, "markup": "markdown" }
     ],
     "folderName": "kind-30040-publications",
     "fields": [

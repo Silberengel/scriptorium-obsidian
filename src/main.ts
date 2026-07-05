@@ -1,5 +1,5 @@
 import { Plugin, TFile, Notice, Menu } from "obsidian";
-import { ScriptoriumSettings, DEFAULT_SETTINGS, DEFAULT_RELAY_PRESET } from "./types";
+import { ScriptoriumSettings, DEFAULT_SETTINGS, DEFAULT_RELAY_PRESET, PublicationSectionKind } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { NewDocumentModal } from "./ui/newDocumentModal";
 import { writeMetadata, createDefaultMetadata } from "./metadataManager";
@@ -184,7 +184,7 @@ export default class ScriptoriumPlugin extends Plugin {
 			templates,
 			this.settings,
 			this.settings.defaultTemplateId,
-			async (templateId: string, title: string, sectionTemplateId?: string) => {
+			async (templateId: string, title: string, section?: PublicationSectionKind) => {
 				try {
 					const template = getTemplateById(templateId, this.settings);
 					if (!template) {
@@ -194,7 +194,7 @@ export default class ScriptoriumPlugin extends Plugin {
 
 					log(`Creating new document: template=${templateId}, title=${title}`);
 
-					const metadata = createDefaultMetadata(template, title, sectionTemplateId);
+					const metadata = createDefaultMetadata(template, title, section);
 					const folderPath = await ensureNostrNotesFolder(this.app, template);
 					const sanitizedTitle = this.sanitizeFilename(title);
 					const extension = getFileExtension(template, this.settings, metadata);

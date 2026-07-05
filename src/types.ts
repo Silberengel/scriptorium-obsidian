@@ -27,18 +27,17 @@ export interface KindTemplate {
 	description?: string;
 	markup?: MarkupFormat;
 	structured: boolean;
-	/** Primary section template id (default section kind/markup for new documents). */
-	contentTemplateId?: string;
-	/** All linked section template ids (each defines an allowed kind + markup). */
-	contentTemplateIds?: string[];
+	/** Allowed section kind + markup pairs for hierarchical publications. */
+	contentKinds?: PublicationSectionKind[];
 	folderName?: string;
 	fields: KindTemplateField[];
 }
 
 export interface TemplateMetadata {
 	templateId?: string;
-	/** Section template id for structured publications (when multiple section kinds are allowed). */
-	sectionTemplateId?: string;
+	/** Selected section kind + markup when a publication allows multiple content kinds. */
+	sectionKind?: number;
+	sectionMarkup?: MarkupFormat;
 	kind: number;
 	title?: string;
 	author?: string;

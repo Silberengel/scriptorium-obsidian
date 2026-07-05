@@ -1,28 +1,33 @@
 import { App, Modal, Setting } from "obsidian";
-import { KindTemplate, ScriptoriumSettings } from "../types";
-import { getPublicationSectionTemplates, formatPublicationSectionLabel } from "../templateRegistry";
+import { KindTemplate, PublicationSectionKind, ScriptoriumSettings } from "../types";
+import {
+	getPublicationContentKinds,
+	formatPublicationSectionLabel,
+	sectionKindKey,
+	parseSectionKindKey,
+} from "../templateRegistry";
 
 export class NewDocumentModal extends Modal {
 	private templates: KindTemplate[];
 	private settings: ScriptoriumSettings;
 	private selectedTemplateId: string;
-	private selectedSectionTemplateId: string;
+	private selectedSectionKey: string;
 	private title: string;
 	private sectionSetting: Setting | null = null;
-	private onSubmit: (templateId: string, title: string, sectionTemplateId?: string) => void;
+	private onSubmit: (templateId: string, title: string, section?: PublicationSectionKind) => void;
 
 	constructor(
 		app: App,
 		templates: KindTemplate[],
 		settings: ScriptoriumSettings,
 		defaultTemplateId: string,
-		onSubmit: (templateId: string, title: string, sectionTemplateId?: string) => void
+		onSubmit: (templateId: string, title: string, section?: PublicationSectionKind) => void
 	) {
 		super(app);
 		this.templates = templates;
 		this.settings = settings;
 		this.selectedTemplateId = defaultTemplateId;
-		this.selectedSectionTemplateId = "";
+		this.selectedSectionKey = "";
 		this.title = "";
 		this.onSubmit = onSubmit;
 	}
@@ -70,8 +75,8 @@ export class NewDocumentModal extends Modal {
 		const buttonContainer = contentEl.createDiv({ cls: "scriptorium-modal-buttons" });
 		buttonContainer.createEl("button", { text: "Create", cls: "mod-cta" }).addEventListener("click", () => {
 			if (!this.title) this.title = "Untitled";
-			const sectionId = this.selectedSectionTemplateId || undefined;
-			this.onSubmit(this.selectedTemplateId, this.title, sectionId);
+			const section = parseSectionKindKey(this.selectedSectionKey) ?? undefined;
+			this.onSubmit(this.selectedTemplateId, this.title, section);
 			this.close();
 		});
 		buttonContainer.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
@@ -82,7 +87,7 @@ export class NewDocumentModal extends Modal {
 
 		const template = this.templates.find((t) => t.id === this.selectedTemplateId);
 		const sections = template?.structured
-			? getPublicationSectionTemplates(template, this.settings)
+			? getPublicationContentKinds(template, this.settings)
 			: [];
 
 		this.sectionSetting.settingEl.style.display = sections.length > 1 ? "" : "none";
@@ -90,7 +95,7 @@ export class NewDocumentModal extends Modal {
 		this.sectionSetting.clear();
 
 		if (sections.length <= 1) {
-			this.selectedSectionTemplateId = sections[0]?.id ?? "";
+			this.selectedSectionKey = sections[0] ? sectionKindKey(sections[0]) : "";
 			return;
 		}
 
@@ -99,12 +104,12 @@ export class NewDocumentModal extends Modal {
 			.setDesc("Which allowed section kind and markup to use for this publication file")
 			.addDropdown((dropdown) => {
 				for (const s of sections) {
-					dropdown.addOption(s.id, formatPublicationSectionLabel(s));
+					dropdown.addOption(sectionKindKey(s), formatPublicationSectionLabel(s));
 				}
-				this.selectedSectionTemplateId = sections[0].id;
-				dropdown.setValue(sections[0].id);
+				this.selectedSectionKey = sectionKindKey(sections[0]);
+				dropdown.setValue(this.selectedSectionKey);
 				dropdown.onChange((value) => {
-					this.selectedSectionTemplateId = value;
+					this.selectedSectionKey = value;
 				});
 			});
 	}

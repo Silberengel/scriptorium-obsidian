@@ -19,6 +19,7 @@ import {
 	resolveTemplate,
 	getDocumentMarkup,
 	resolveSectionTemplate,
+	getPublicationContentKinds,
 } from "./templateRegistry";
 
 function resolveAuthor(
@@ -64,8 +65,8 @@ export async function buildStructuredEvents(
 	const events: SignedEvent[] = [];
 	const pubkey = getPubkeyFromPrivkey(privkey);
 
-	if (!indexTemplate.contentTemplateId && !indexTemplate.contentTemplateIds?.length) {
-		return { events: [], structure: [], errors: ["Publication template has no linked section templates"] };
+	if (!getPublicationContentKinds(indexTemplate, settings).length) {
+		return { events: [], structure: [], errors: ["Publication template has no contentKinds defined"] };
 	}
 
 	const contentTemplate = resolveSectionTemplate(indexTemplate, settings, metadata);

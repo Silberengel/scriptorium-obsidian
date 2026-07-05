@@ -16,7 +16,8 @@ import {
 	resetAllTemplatesToDefaults,
 	isDeletableTemplate,
 	createCustomTemplateScaffold,
-	createPublicationTemplates,
+	createPublicationTemplate,
+	slugifyTemplateName,
 	getDocumentMarkup,
 } from "../templateRegistry";
 import { getNip01KindClass } from "../utils/nip01Kind";
@@ -281,27 +282,21 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 
 	private addPublicationTemplates(): void {
 		new AddPublicationModal(this.app, async (config) => {
-			const publicationId = config.name
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, "-")
-				.replace(/^-|-$/g, "") || "my-publication";
+			const publicationId = slugifyTemplateName(config.name);
 
-			const { publication, sections } = createPublicationTemplates({
-				publicationId: `my-${publicationId}`,
+			const publication = createPublicationTemplate({
+				publicationId,
 				indexKind: config.indexKind,
 				name: config.name,
 				sectionKinds: config.sectionKinds,
 			});
 
-			for (const section of sections) {
-				updateKindTemplatesInSettings(this.plugin.settings, section);
-			}
 			updateKindTemplatesInSettings(this.plugin.settings, publication);
 			await this.plugin.saveSettings();
 			await this.display();
 
 			const sectionSummary = config.sectionKinds
-				.map((s) => `kind ${s.kind} (${s.markup})`)
+				.map((s) => `${s.kind} (${s.markup})`)
 				.join(", ");
 			new Notice(`Added publication "${publication.name}" with sections: ${sectionSummary}`);
 			this.openNewTemplateEditor(publication);

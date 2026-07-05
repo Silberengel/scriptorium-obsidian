@@ -7,7 +7,7 @@ import { isStructuredSourceDocument } from "../structureParser";
 import {
 	resolveTemplate,
 	getTemplateById,
-	getPublicationSectionTemplates,
+	getPublicationContentKinds,
 } from "../templateRegistry";
 
 function findStructuredTemplateForContent(
@@ -19,17 +19,15 @@ function findStructuredTemplateForContent(
 	if (metadata?.templateId) {
 		const fromMeta = getTemplateById(metadata.templateId, settings);
 		if (fromMeta?.structured) {
-			for (const section of getPublicationSectionTemplates(fromMeta, settings)) {
-				const markup = section.markup ?? "asciidoc";
-				if (isStructuredSourceDocument(content, markup, file)) return fromMeta;
+			for (const section of getPublicationContentKinds(fromMeta, settings)) {
+				if (isStructuredSourceDocument(content, section.markup, file)) return fromMeta;
 			}
 		}
 	}
 
 	for (const publication of settings.kindTemplates.filter((t) => t.structured)) {
-		for (const section of getPublicationSectionTemplates(publication, settings)) {
-			const markup = section.markup ?? "asciidoc";
-			if (isStructuredSourceDocument(content, markup, file)) return publication;
+		for (const section of getPublicationContentKinds(publication, settings)) {
+			if (isStructuredSourceDocument(content, section.markup, file)) return publication;
 		}
 	}
 

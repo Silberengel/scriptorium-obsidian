@@ -79,19 +79,19 @@ export class KindTemplateEditorModal extends Modal {
 		body.createEl("p", { text: "Publication (hierarchical, one file → many events):" }).style.fontWeight =
 			"600";
 		body.createEl("p", {
-			text: "One source file with headings splits into index events (branches, empty body) and section events (leaves, with body). Each allowed section kind + markup is a linked section template.",
+			text: "One source file with headings splits into index events (branches, empty body) and section events (leaves, with body). Allowed section kinds are listed inline on the publication template.",
 		});
 
 		const structuredList = body.createEl("ul");
 		structuredList.style.marginTop = "0.25rem";
 		structuredList.createEl("li", {
-			text: 'Publication: "structured": true, index kind, "contentTemplateIds" listing section templates',
+			text: 'Publication: "structured": true, index kind, "contentKinds": [{ "kind": 30041, "markup": "asciidoc" }, ...]',
 		});
 		structuredList.createEl("li", {
-			text: "Section templates: each defines kind + markup (e.g. 30041/AsciiDoc, 30818/AsciiDoc, 30023/Markdown)",
+			text: "Flat pairs also work: \"contentKinds\": [30041, \"asciidoc\", 30023, \"markdown\"]",
 		});
 		structuredList.createEl("li", {
-			text: 'Metadata "sectionTemplateId" picks which section kind when multiple are allowed',
+			text: 'Metadata "sectionKind" + "sectionMarkup" pick which content kind when multiple are allowed',
 		});
 
 		body.createEl("p", {
