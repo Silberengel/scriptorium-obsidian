@@ -15,6 +15,11 @@ import { parseAsciiDocStructure, isAsciiDocDocument } from "../asciidocParser";
 import { validateAsciiDocDocument } from "../asciidocValidator";
 import { verifyEventSecurity } from "../utils/security";
 import { showErrorNotice } from "../utils/errorHandling";
+import {
+	buildPublishResultsHeader,
+	showPublishResultsModal,
+	summarizePublishResults,
+} from "../ui/publishResultsModal";
 import { log, logError } from "../utils/console";
 import { determineTemplate } from "../utils/eventKind";
 import { resolveTemplate, getTemplateById, getFolderName } from "../templateRegistry";
@@ -248,23 +253,19 @@ export async function handlePublishEvents(
 		const results = await publishEventsWithRetry(writeRelays, events, privkey);
 
 		const total = events.length;
-		const relayLines = results
-			.filter((relayResults) => relayResults.length > 0)
-			.map((relayResults) => {
-				const relay = relayResults[0].relay;
-				const published = relayResults.filter((r) => r.success).length;
-				return `${relay}: ${published}/${total}`;
-			});
-
-		const allRelaysComplete = results.every(
-			(relayResults) => relayResults.length > 0 && relayResults.every((r) => r.success)
+		const { allRelaysComplete, allEventsPublishedSomewhere } = summarizePublishResults(
+			events,
+			results
 		);
 
-		const header = allRelaysComplete
-			? `All relays published ${total}/${total} event(s):`
-			: `Publish results (${total} event(s) in batch):`;
+		const header = buildPublishResultsHeader(total, allRelaysComplete, allEventsPublishedSomewhere);
 
-		new Notice([header, ...relayLines].join("\n"));
+		showPublishResultsModal(app, {
+			header,
+			totalEvents: total,
+			results,
+			events,
+		});
 	} catch (error: unknown) {
 		showErrorNotice("Error publishing events", error);
 	}

@@ -45,15 +45,16 @@ export function isAuthRequiredResponse(reason: string): boolean {
 }
 
 /**
- * Check if a publish response indicates success
+ * Check if a publish response indicates success (NIP-20 OK message).
+ * Only an empty message or a duplicate prefix means the relay accepted the event.
  */
 export function isPublishSuccess(reason: string): boolean {
-	return (
-		reason !== "timeout" &&
-		!isAuthRequiredResponse(reason) &&
-		!reason.toLowerCase().includes("error") &&
-		!reason.toLowerCase().includes("blocked") &&
-		!reason.toLowerCase().includes("invalid") &&
-		!reason.toLowerCase().includes("restricted")
-	);
+	const trimmed = reason.trim();
+	if (trimmed === "") return true;
+
+	const lower = trimmed.toLowerCase();
+	if (lower === "ok") return true;
+	if (lower.startsWith("duplicate:")) return true;
+
+	return false;
 }

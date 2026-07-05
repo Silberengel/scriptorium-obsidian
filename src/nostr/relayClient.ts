@@ -37,6 +37,12 @@ async function publishEventOnRelay(
 	timeout: number = DEFAULT_TIMEOUT
 ): Promise<PublishingResult> {
 	const relayUrl = relay.url;
+	const priorNotice = relay.onnotice;
+	let relayNotice: string | undefined;
+	relay.onnotice = (msg: string) => {
+		relayNotice = msg;
+		priorNotice?.(msg);
+	};
 
 	try {
 		let reason = await publishWithTimeout(relay, event, timeout);
@@ -52,10 +58,10 @@ async function publishEventOnRelay(
 			eventId: event.id,
 			relay: relayUrl,
 			success,
-			message: success ? undefined : reason,
+			message: success ? undefined : reason || relayNotice,
 		};
 	} catch (error: any) {
-		const message = sanitizeErrorMessage(error) || "Publish failed";
+		const message = sanitizeErrorMessage(error) || relayNotice || "Publish failed";
 		if (isAuthRequiredResponse(message)) {
 			try {
 				const reason = await handleAuthRequiredError(relay, privkey, () =>
@@ -66,14 +72,14 @@ async function publishEventOnRelay(
 					eventId: event.id,
 					relay: relayUrl,
 					success,
-					message: success ? undefined : reason,
+					message: success ? undefined : reason || relayNotice,
 				};
 			} catch (retryError: any) {
 				return {
 					eventId: event.id,
 					relay: relayUrl,
 					success: false,
-					message: sanitizeErrorMessage(retryError) || "Publish failed after auth retry",
+					message: sanitizeErrorMessage(retryError) || relayNotice || "Publish failed after auth retry",
 				};
 			}
 		}
@@ -83,6 +89,8 @@ async function publishEventOnRelay(
 			success: false,
 			message,
 		};
+	} finally {
+		relay.onnotice = priorNotice;
 	}
 }
 
