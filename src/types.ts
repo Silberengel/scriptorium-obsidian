@@ -22,7 +22,6 @@ export interface KindTemplate {
 	markup: MarkupFormat;
 	structured: boolean;
 	contentTemplateId?: string;
-	useNKBIP08?: boolean;
 	folderName?: string;
 	fields: KindTemplateField[];
 }
@@ -41,11 +40,6 @@ export interface TemplateMetadata {
 	published_by?: string;
 	source?: string;
 	auto_update?: string;
-	collection_id?: string;
-	version_tag?: string;
-	title_id?: string;
-	chapter_id?: string;
-	section_id?: string;
 	derivative_author?: string;
 	derivative_event?: string;
 	derivative_relay?: string;

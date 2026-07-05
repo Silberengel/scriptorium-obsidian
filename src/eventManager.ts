@@ -10,40 +10,23 @@ import {
 import {
 	createSignedEvent,
 	getPubkeyFromPrivkey,
-	uniqueDTag,
+	createDTagAllocator,
 } from "./nostr/eventBuilder";
 import { buildTagsFromTemplate } from "./nostr/templateEventBuilder";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
 import { mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
 import { isAsciiDocFile } from "./utils/fileExtensions";
 import {
-	buildNKBIP08TagsFor30041,
-	applyNKBIP08TagsTo30041,
-	mergeNKBIP08TagsFor30040,
-	applyNKBIP08TagsTo30040,
-	addNKBIP08TagsTo30040,
-	NKBIP08_TAGS,
-} from "./nostr/nkbip08Tags";
-import {
 	getTemplateById,
 	resolveTemplate,
 } from "./templateRegistry";
 
-function createDTagAllocator() {
-	const usedDTags = new Set<string>();
-	let nextCreatedAt = Math.floor(Date.now() / 1000);
-
-	return (title: string): { createdAt: number; dTag: string } => {
-		let createdAt = Math.max(nextCreatedAt, Math.floor(Date.now() / 1000));
-		let dTag = uniqueDTag(title, createdAt);
-		while (usedDTags.has(dTag)) {
-			createdAt++;
-			dTag = uniqueDTag(title, createdAt);
-		}
-		usedDTags.add(dTag);
-		nextCreatedAt = createdAt + 1;
-		return { createdAt, dTag };
-	};
+function resolveAuthor(
+	metadata?: TemplateMetadata,
+	rootMetadata?: TemplateMetadata
+): string | undefined {
+	const author = metadata?.author ?? rootMetadata?.author;
+	return author ? String(author) : undefined;
 }
 
 export async function buildSimpleEvent(
@@ -56,7 +39,8 @@ export async function buildSimpleEvent(
 	const cleanContent = stripMetadataFromContent(file, content);
 	const allocateDTag = createDTagAllocator();
 	const title = String(metadata.title || "untitled");
-	const { createdAt, dTag } = allocateDTag(title);
+	const dTag = allocateDTag(title);
+	const createdAt = Math.floor(Date.now() / 1000);
 	const tags = buildTagsFromTemplate(
 		metadata,
 		template,
@@ -79,7 +63,6 @@ export async function buildStructuredEvents(
 	const errors: string[] = [];
 	const events: SignedEvent[] = [];
 	const pubkey = getPubkeyFromPrivkey(privkey);
-	const allocateDTag = createDTagAllocator();
 
 	if (!indexTemplate.contentTemplateId) {
 		return { events: [], structure: [], errors: ["Structured template missing contentTemplateId"] };
@@ -103,16 +86,12 @@ export async function buildStructuredEvents(
 
 	const rootNode = header[0];
 	const structure: StructureNode[] = [rootNode];
-	const rootBookTitle = rootNode.title;
 
 	async function buildEventsFromNode(
 		node: StructureNode,
 		parentMetadata?: TemplateMetadata,
-		bookTitle?: string,
-		isParentRoot = false,
 		rootMetadata?: TemplateMetadata
 	): Promise<void> {
-		const currentBookTitle = bookTitle || rootBookTitle;
 		const currentRootMetadata = rootMetadata || metadata;
 
 		if (node.kind === contentKind) {
@@ -125,29 +104,15 @@ export async function buildStructuredEvents(
 				return;
 			}
 
-			const baseMetadata: TemplateMetadata = {
+			const contentMetadata: TemplateMetadata = {
 				templateId: leafTemplate.id,
 				kind: contentKind,
 				title: String(node.title),
+				author: resolveAuthor(parentMetadata, currentRootMetadata),
 			};
 
-			const isChapter = isParentRoot;
-			const nkbip08Tags = indexTemplate.useNKBIP08
-				? buildNKBIP08TagsFor30041(
-					parentMetadata,
-					currentRootMetadata,
-					currentBookTitle,
-					isChapter ? node.title : String(parentMetadata.title || ""),
-					node.title,
-					isChapter
-				)
-				: {};
-			const contentMetadata = indexTemplate.useNKBIP08
-				? applyNKBIP08TagsTo30041(baseMetadata, nkbip08Tags)
-				: baseMetadata;
-
-			const { createdAt, dTag } = allocateDTag(String(node.title));
-			node.dTag = dTag;
+			const dTag = node.dTag;
+			const createdAt = Math.floor(Date.now() / 1000);
 			const tags = buildTagsFromTemplate(contentMetadata, leafTemplate, pubkey, undefined, {
 				createdAt,
 				dTag,
@@ -169,10 +134,6 @@ export async function buildStructuredEvents(
 				title: String(node.title),
 			};
 
-			const mergedNKBIP08Tags = indexTemplate.useNKBIP08
-				? mergeNKBIP08TagsFor30040(parentMetadata, baseMetadata, currentRootMetadata)
-				: {};
-
 			const mergedMetadata: TemplateMetadata = {
 				...baseMetadata,
 				templateId: indexTemplate.id,
@@ -189,16 +150,8 @@ export async function buildStructuredEvents(
 				auto_update: parentMetadata?.auto_update || baseMetadata.auto_update,
 			};
 
-			const finalMetadata = indexTemplate.useNKBIP08
-				? applyNKBIP08TagsTo30040(mergedMetadata, mergedNKBIP08Tags)
-				: mergedMetadata;
-
-			const isBook = !parentMetadata;
-			const isChapter = !!parentMetadata;
-			const isRoot = !parentMetadata;
-
 			for (const child of node.children) {
-				await buildEventsFromNode(child, finalMetadata, currentBookTitle, isRoot, currentRootMetadata);
+				await buildEventsFromNode(child, mergedMetadata, currentRootMetadata);
 
 				const childEvent = events.find((e) => {
 					const dTag = e.tags.find((t) => t[0] === "d")?.[1];
@@ -210,33 +163,20 @@ export async function buildStructuredEvents(
 				}
 			}
 
-			const { createdAt, dTag } = allocateDTag(String(node.title));
-			node.dTag = dTag;
-			const tags = buildTagsFromTemplate(finalMetadata, indexTemplate, pubkey, childEvents, {
+			const dTag = node.dTag;
+			const createdAt = Math.floor(Date.now() / 1000);
+			const tags = buildTagsFromTemplate(mergedMetadata, indexTemplate, pubkey, childEvents, {
 				createdAt,
 				dTag,
 			});
-			const filteredTags = indexTemplate.useNKBIP08
-				? tags.filter(
-					(t) =>
-						t[0] !== NKBIP08_TAGS.COLLECTION &&
-						t[0] !== NKBIP08_TAGS.TITLE &&
-						t[0] !== NKBIP08_TAGS.CHAPTER &&
-						t[0] !== NKBIP08_TAGS.VERSION
-				)
-				: tags;
 
-			if (indexTemplate.useNKBIP08) {
-				addNKBIP08TagsTo30040(filteredTags, finalMetadata, isBook, isChapter, currentBookTitle, currentRootMetadata);
-			}
-
-			const event = createSignedEvent(indexKind, "", filteredTags, privkey, createdAt);
+			const event = createSignedEvent(indexKind, "", tags, privkey, createdAt);
 			events.push(event);
-			node.metadata = finalMetadata;
+			node.metadata = mergedMetadata;
 		}
 	}
 
-	await buildEventsFromNode(rootNode, metadata, rootBookTitle, false, metadata);
+	await buildEventsFromNode(rootNode, metadata, metadata);
 
 	const rootDTag = rootNode.dTag;
 	events.sort((a, b) => {

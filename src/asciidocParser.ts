@@ -107,7 +107,33 @@ export function parseAsciiDocStructure(
 	}
 
 	markLowestLevelAsContent(rootNode, indexKind, contentKind);
+	assignHierarchicalDTags(rootNode);
 	return [rootNode];
+}
+
+/**
+ * Assign stable hierarchical d-tags from the document tree.
+ * Path is built from normalized titles (e.g. my-book-chapter-1-intro) so
+ * inserting a new chapter or section does not change existing d-tags.
+ * Duplicate titles under the same parent get -2, -3 suffixes.
+ */
+export function assignHierarchicalDTags(root: StructureNode): void {
+	const rootTag = normalizeDTag(String(root.title)) || "untitled";
+	root.dTag = rootTag;
+
+	function walk(parent: StructureNode, parentTag: string): void {
+		const segmentCounts = new Map<string, number>();
+		for (const child of parent.children) {
+			const segment = normalizeDTag(String(child.title)) || "untitled";
+			const seen = segmentCounts.get(segment) ?? 0;
+			segmentCounts.set(segment, seen + 1);
+			child.dTag =
+				seen === 0 ? `${parentTag}-${segment}` : `${parentTag}-${segment}-${seen + 1}`;
+			walk(child, child.dTag);
+		}
+	}
+
+	walk(root, rootTag);
 }
 
 function markLowestLevelAsContent(node: StructureNode, indexKind: number, contentKind: number): void {

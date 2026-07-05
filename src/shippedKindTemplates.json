@@ -110,7 +110,6 @@
     "markup": "asciidoc",
     "structured": true,
     "contentTemplateId": "kind-30041-default",
-    "useNKBIP08": true,
     "folderName": "kind-30040-publications",
     "fields": [
       {
@@ -178,18 +177,6 @@
         "key": "topics",
         "tagType": "topics",
         "description": "Comma-separated topics (e.g., 'bitcoin, nostr')",
-        "required": false
-      },
-      {
-        "key": "collection_id",
-        "tagType": "text",
-        "description": "NKBIP-08 collection identifier (C tag)",
-        "required": false
-      },
-      {
-        "key": "version_tag",
-        "tagType": "text",
-        "description": "NKBIP-08 version identifier (e.g., kjv, drb)",
         "required": false
       }
     ]

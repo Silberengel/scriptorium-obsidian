@@ -1,7 +1,7 @@
 import { KindTemplate, TemplateMetadata } from "../types";
-import { uniqueDTag } from "./eventBuilder";
+import { normalizeDTag } from "./eventBuilder";
 import { requiresDTag, requiresPublishedAt } from "../utils/nip01Kind";
-import { addNKBIP08TagsTo30040, addNKBIP08TagsTo30041 } from "./nkbip08Tags";
+import { addTitleAuthorIndexTags } from "./indexTags";
 
 export interface BuildTagsOptions {
 	createdAt?: number;
@@ -46,8 +46,10 @@ export function buildTagsFromTemplate(
 	const titleValue = meta.title;
 	if (isNonEmptyString(titleValue)) {
 		if (requiresDTag(template.kind)) {
-			const dTag = options?.dTag ?? uniqueDTag(titleValue, createdAt);
-			tags.push(["d", dTag]);
+			const dTag = options?.dTag ?? normalizeDTag(titleValue);
+			if (dTag) {
+				tags.push(["d", dTag]);
+			}
 		}
 	}
 
@@ -94,12 +96,11 @@ export function buildTagsFromTemplate(
 		});
 	}
 
-	if (template.useNKBIP08 && template.kind === 30040 && !childEvents) {
-		addNKBIP08TagsTo30040(tags, metadata as Parameters<typeof addNKBIP08TagsTo30040>[1], true, false, undefined, metadata as Parameters<typeof addNKBIP08TagsTo30040>[5]);
-	}
-	if (template.useNKBIP08 && template.kind === 30041) {
-		addNKBIP08TagsTo30041(tags, metadata as Parameters<typeof addNKBIP08TagsTo30041>[1]);
-	}
+	addTitleAuthorIndexTags(
+		tags,
+		isNonEmptyString(titleValue) ? titleValue : undefined,
+		isNonEmptyString(meta.author) ? meta.author : undefined
+	);
 
 	if (childEvents) {
 		childEvents.forEach((child) => {

@@ -61,11 +61,13 @@ export function getNpubFromPrivkey(privkey: string): string {
  * Normalize d-tag per NIP-54 rules
  */
 export function normalizeDTag(title: string): string {
-	// All letters with uppercase/lowercase variants → lowercase
 	let normalized = title.toLowerCase();
 
 	// Whitespace → `-`
 	normalized = normalized.replace(/\s+/g, "-");
+
+	// Periods → `-` before other punctuation is stripped, so "1.5" → "1-5" not "15"
+	normalized = normalized.replace(/\./g, "-");
 
 	// Punctuation and symbols → removed (except hyphens)
 	normalized = normalized.replace(/[^\p{L}\p{N}-]/gu, "");
@@ -76,17 +78,27 @@ export function normalizeDTag(title: string): string {
 	// Leading and trailing `-` → removed
 	normalized = normalized.replace(/^-+|-+$/g, "");
 
-	// Non-ASCII letters and numbers are preserved (already handled by regex above)
-
 	return normalized;
 }
 
 /**
- * Build a unique d-tag from a title and UNIX timestamp (seconds).
+ * Create a stable d-tag allocator for one event batch.
+ * Uses normalizeDTag(title) so re-creating the same document yields the same
+ * d-tags and replaces prior events on relays (NIP-01 addressable kinds).
+ * Duplicate titles within one batch get suffixes -2, -3, …
  */
-export function uniqueDTag(title: string, createdAt: number): string {
-	const base = normalizeDTag(title);
-	return base ? `${base}-${createdAt}` : String(createdAt);
+export function createDTagAllocator(): (title: string) => string {
+	const usedCounts = new Map<string, number>();
+
+	return (title: string): string => {
+		const base = normalizeDTag(title) || "untitled";
+		const seen = usedCounts.get(base) ?? 0;
+		usedCounts.set(base, seen + 1);
+		if (seen === 0) {
+			return base;
+		}
+		return `${base}-${seen + 1}`;
+	};
 }
 
 /**
