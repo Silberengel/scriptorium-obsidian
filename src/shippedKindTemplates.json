@@ -100,10 +100,15 @@
     "type": "default",
     "kind": 30040,
     "name": "Publication",
-    "description": "Hierarchical publication: one source file splits into index and section Nostr events. Default sections: kind 30041 (asciidoc); optional kind 30041 (markdown).",
+    "description": "Hierarchical publication: one source file splits into index and section Nostr events. Section kinds: 30041, 30818 (AsciiDoc); 30023, 30817 (Markdown).",
     "structured": true,
     "contentTemplateId": "kind-30041-default",
-    "contentTemplateIds": ["kind-30041-default", "kind-30041-markdown-default"],
+    "contentTemplateIds": [
+      "kind-30041-default",
+      "kind-30818-default",
+      "kind-30023-default",
+      "kind-30817-default"
+    ],
     "folderName": "kind-30040-publications",
     "fields": [
       {
@@ -161,13 +166,6 @@
         "required": false
       },
       {
-        "key": "auto_update",
-        "tagType": "text",
-        "description": "Auto-update: yes, ask, or no",
-        "required": false,
-        "nostrTag": "auto-update"
-      },
-      {
         "key": "topics",
         "tagType": "topics",
         "description": "Comma-separated topics (e.g., 'bitcoin, nostr')",
@@ -196,36 +194,6 @@
         "tagType": "text",
         "description": "Image URL",
         "required": false
-      },
-      {
-        "key": "summary",
-        "tagType": "text",
-        "description": "Article summary",
-        "required": false
-      },
-      {
-        "key": "topics",
-        "tagType": "topics",
-        "description": "Comma-separated topics (e.g., 'bitcoin, nostr')",
-        "required": false
-      }
-    ]
-  },
-  {
-    "id": "kind-30041-markdown-default",
-    "type": "default",
-    "kind": 30041,
-    "name": "Publication Sections (Markdown)",
-    "description": "Section events for hierarchical publications — kind 30041, Markdown source.",
-    "markup": "markdown",
-    "structured": false,
-    "folderName": "kind-30041-chapters",
-    "fields": [
-      {
-        "key": "title",
-        "tagType": "title",
-        "description": "Chapter/section title (required)",
-        "required": true
       },
       {
         "key": "summary",

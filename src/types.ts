@@ -50,7 +50,6 @@ export interface TemplateMetadata {
 	published_on?: string;
 	published_by?: string;
 	source?: string;
-	auto_update?: string;
 	derivative_author?: string;
 	derivative_event?: string;
 	derivative_relay?: string;

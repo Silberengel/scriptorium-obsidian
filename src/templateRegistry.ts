@@ -56,8 +56,25 @@ export function migratePublicationTemplates(settings: ScriptoriumSettings): void
 	const localPub = settings.kindTemplates.find((t) => t.id === "kind-30040-default");
 	if (shippedPub && localPub?.type === "default") {
 		localPub.contentTemplateId = shippedPub.contentTemplateId;
-		localPub.contentTemplateIds = [...(shippedPub.contentTemplateIds ?? [])];
+		localPub.contentTemplateIds = [...new Set(shippedPub.contentTemplateIds ?? [])];
 		localPub.description = shippedPub.description;
+		localPub.name = shippedPub.name;
+	}
+
+	// Drop orphaned section-only template superseded by standard kind templates
+	const orphanedId = "kind-30041-markdown-default";
+	settings.kindTemplates = settings.kindTemplates.filter((t) => t.id !== orphanedId);
+	for (const template of settings.kindTemplates) {
+		if (template.contentTemplateIds?.includes(orphanedId)) {
+			template.contentTemplateIds = template.contentTemplateIds.filter((id) => id !== orphanedId);
+		}
+		if (template.contentTemplateId === orphanedId && template.contentTemplateIds?.length) {
+			template.contentTemplateId = template.contentTemplateIds[0];
+		}
+	}
+
+	for (const template of settings.kindTemplates) {
+		template.fields = template.fields.filter((f) => f.key !== "auto_update");
 	}
 }
 
@@ -96,21 +113,44 @@ export function getAllTemplates(settings: ScriptoriumSettings): KindTemplate[] {
 	return settings.kindTemplates;
 }
 
+export function isPublicationSectionOnlyTemplate(template: KindTemplate): boolean {
+	if (template.id === "kind-30041-default") return true;
+	return template.type === "custom" && template.folderName === "my-publication-sections";
+}
+
 export function getSelectableTemplates(settings: ScriptoriumSettings): KindTemplate[] {
-	const sectionConfigIds = new Set<string>();
+	const sectionOnlyIds = new Set<string>();
 	for (const t of settings.kindTemplates) {
-		if (t.contentTemplateId) sectionConfigIds.add(t.contentTemplateId);
+		if (t.contentTemplateId) {
+			const section = getTemplateById(t.contentTemplateId, settings);
+			if (section && isPublicationSectionOnlyTemplate(section)) {
+				sectionOnlyIds.add(t.contentTemplateId);
+			}
+		}
 		for (const id of t.contentTemplateIds ?? []) {
-			sectionConfigIds.add(id);
+			const section = getTemplateById(id, settings);
+			if (section && isPublicationSectionOnlyTemplate(section)) {
+				sectionOnlyIds.add(id);
+			}
 		}
 	}
-	return settings.kindTemplates.filter((t) => !sectionConfigIds.has(t.id));
+	return settings.kindTemplates.filter((t) => !sectionOnlyIds.has(t.id));
 }
 
 export function getPublicationSectionTemplateIds(publication: KindTemplate): string[] {
-	if (publication.contentTemplateIds?.length) return publication.contentTemplateIds;
-	if (publication.contentTemplateId) return [publication.contentTemplateId];
-	return [];
+	const ids = publication.contentTemplateIds?.length
+		? publication.contentTemplateIds
+		: publication.contentTemplateId
+			? [publication.contentTemplateId]
+			: [];
+	return [...new Set(ids)];
+}
+
+/** Label for publication section picker, e.g. "30041 (Asciidoc)". */
+export function formatPublicationSectionLabel(template: KindTemplate): string {
+	const markup = template.markup ?? "asciidoc";
+	const markupLabel = markup.charAt(0).toUpperCase() + markup.slice(1);
+	return `${template.kind} (${markupLabel})`;
 }
 
 export function getPublicationSectionTemplates(

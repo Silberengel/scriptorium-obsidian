@@ -152,7 +152,6 @@ export async function buildStructuredEvents(
 				summary: parentMetadata?.summary ? String(parentMetadata.summary) : baseMetadata.summary ? String(baseMetadata.summary) : undefined,
 				source: parentMetadata?.source ? String(parentMetadata.source) : baseMetadata.source ? String(baseMetadata.source) : undefined,
 				image: parentMetadata?.image ? String(parentMetadata.image) : baseMetadata.image ? String(baseMetadata.image) : undefined,
-				auto_update: parentMetadata?.auto_update || baseMetadata.auto_update,
 			};
 
 			for (const child of node.children) {

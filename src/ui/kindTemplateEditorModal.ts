@@ -88,7 +88,7 @@ export class KindTemplateEditorModal extends Modal {
 			text: 'Publication: "structured": true, index kind, "contentTemplateIds" listing section templates',
 		});
 		structuredList.createEl("li", {
-			text: "Section templates: each defines kind + markup (e.g. 30041/asciidoc, 30818/markdown)",
+			text: "Section templates: each defines kind + markup (e.g. 30041/AsciiDoc, 30818/AsciiDoc, 30023/Markdown)",
 		});
 		structuredList.createEl("li", {
 			text: 'Metadata "sectionTemplateId" picks which section kind when multiple are allowed',

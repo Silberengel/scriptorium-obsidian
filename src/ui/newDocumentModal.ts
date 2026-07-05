@@ -1,6 +1,6 @@
 import { App, Modal, Setting } from "obsidian";
 import { KindTemplate, ScriptoriumSettings } from "../types";
-import { getPublicationSectionTemplates } from "../templateRegistry";
+import { getPublicationSectionTemplates, formatPublicationSectionLabel } from "../templateRegistry";
 
 export class NewDocumentModal extends Modal {
 	private templates: KindTemplate[];
@@ -99,7 +99,7 @@ export class NewDocumentModal extends Modal {
 			.setDesc("Which allowed section kind and markup to use for this publication file")
 			.addDropdown((dropdown) => {
 				for (const s of sections) {
-					dropdown.addOption(s.id, `kind ${s.kind} (${s.markup})`);
+					dropdown.addOption(s.id, formatPublicationSectionLabel(s));
 				}
 				this.selectedSectionTemplateId = sections[0].id;
 				dropdown.setValue(sections[0].id);

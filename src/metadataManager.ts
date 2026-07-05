@@ -481,7 +481,6 @@ export function createDefaultMetadata(
 	if (title?.trim() && template.kind !== 1) metadata.title = title.trim();
 	if (template.structured) {
 		metadata.type = metadata.type ?? "book";
-		metadata.auto_update = metadata.auto_update ?? "ask";
 	}
 
 	return metadata;
