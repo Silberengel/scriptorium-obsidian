@@ -104,7 +104,7 @@ Body content here...
 
 | Kind | Template id | Format | Description | Title |
 | ---- | ----------- | ------ | ----------- | ----- |
-| 1 | kind-1-default | Markdown | Normal note | optional |
+| 1 | kind-1-default | Markdown | Normal note | — |
 | 11 | kind-11-default | Markdown | Discussion thread OP | required |
 | 30023 | kind-30023-default | Markdown | Long-form article | required |
 | 30040 | kind-30040-default | AsciiDoc | Publication index | required |

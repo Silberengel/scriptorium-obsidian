@@ -59,7 +59,7 @@ export function buildTagsFromTemplate(
 
 		switch (field.tagType) {
 			case "title":
-				if (isNonEmptyString(value)) {
+				if (template.kind !== 1 && isNonEmptyString(value)) {
 					tags.push(["title", value]);
 				}
 				break;
@@ -98,7 +98,7 @@ export function buildTagsFromTemplate(
 
 	addTitleAuthorIndexTags(
 		tags,
-		isNonEmptyString(titleValue) ? titleValue : undefined,
+		template.kind !== 1 && isNonEmptyString(titleValue) ? titleValue : undefined,
 		isNonEmptyString(meta.author) ? meta.author : undefined
 	);
 

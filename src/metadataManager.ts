@@ -416,7 +416,7 @@ export function createDefaultMetadata(template: KindTemplate, title?: string): T
 		kind: template.kind,
 	};
 
-	if (title?.trim()) metadata.title = title.trim();
+	if (title?.trim() && template.kind !== 1) metadata.title = title.trim();
 	if (template.kind === 30040) {
 		metadata.type = "book";
 		metadata.auto_update = "ask";

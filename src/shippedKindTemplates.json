@@ -10,12 +10,6 @@
     "folderName": "kind-1-notes",
     "fields": [
       {
-        "key": "title",
-        "tagType": "title",
-        "description": "Optional title",
-        "required": false
-      },
-      {
         "key": "topics",
         "tagType": "topics",
         "description": "Comma-separated topics (e.g., 'bitcoin, nostr')",
