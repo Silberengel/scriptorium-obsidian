@@ -1,4 +1,4 @@
-import { Kind30040Metadata, Kind30041Metadata, EventMetadata } from "../types";
+import { Kind30040Metadata, Kind30041Metadata } from "../types";
 
 /**
  * NKBIP-08 tag names
@@ -29,7 +29,7 @@ export function normalizeNKBIP08TagValue(text: string | undefined | null): strin
 	}
 	
 	// Remove quotes (single and double)
-	let normalized = text.trim().replace(/^["']|["']$/g, "");
+	const normalized = text.trim().replace(/^["']|["']$/g, "");
 	
 	// Normalize: lowercase, convert non-letter non-number to hyphen
 	// Per NKBIP-08: "Section identifiers cannot contain colons in tag values.
@@ -73,18 +73,6 @@ export interface NKBIP08_30041Tags {
 	chapter_id?: string; // c tag (from chapter title)
 	section_id?: string; // s tag (from section title, only if not a chapter)
 	version_tag?: string; // v tag (inherited from parent 30040)
-}
-
-/**
- * Extract NKBIP-08 tags from a 30040 metadata object
- */
-export function extractNKBIP08TagsFrom30040(
-	metadata: Kind30040Metadata
-): NKBIP08_30040Tags {
-	return {
-		collection_id: metadata.collection_id,
-		version_tag: metadata.version_tag,
-	};
 }
 
 /**
@@ -300,20 +288,4 @@ export function addNKBIP08TagsTo30041(
 	if (metadata.version_tag) {
 		tags.push([NKBIP08_TAGS.VERSION, metadata.version_tag]);
 	}
-}
-
-/**
- * Check if a 30041 event has NKBIP-08 tags (indicating it's nested under 30040)
- * 
- * @param metadata - The 30041 metadata to check
- * @returns True if the event has NKBIP-08 tags
- */
-export function hasNKBIP08Tags(metadata: Kind30041Metadata): boolean {
-	return !!(
-		metadata.collection_id ||
-		metadata.title_id ||
-		metadata.chapter_id ||
-		metadata.section_id ||
-		metadata.version_tag
-	);
 }

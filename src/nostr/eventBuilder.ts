@@ -1,4 +1,4 @@
-import { finalizeEvent, getEventHash, getPublicKey, nip19 } from "nostr-tools";
+import { finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
 import { EventKind, EventMetadata, SignedEvent, Kind30041Metadata, Kind30040Metadata } from "../types";
 import { sanitizeString } from "../utils/security";
 import { addNKBIP08TagsTo30040, addNKBIP08TagsTo30041 } from "./nkbip08Tags";
@@ -36,13 +36,6 @@ export function normalizeSecretKey(key: string): Uint8Array {
 export function getPubkeyFromPrivkey(privkey: string): string {
 	const normalized = normalizeSecretKey(privkey);
 	return getPublicKey(normalized);
-}
-
-/**
- * Get public key from private key (Uint8Array version)
- */
-export function getPubkeyFromPrivkeyBytes(privkey: Uint8Array): string {
-	return getPublicKey(privkey);
 }
 
 /**
@@ -131,7 +124,7 @@ export function buildTagsFromMetadata(
 			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
 			break;
 
-		case 30040:
+		case 30040: {
 			// Publication index (replaceable)
 			addPublishedAtIfReplaceable();
 			if (!metadata.title) {
@@ -189,8 +182,9 @@ export function buildTagsFromMetadata(
 				});
 			}
 			break;
+		}
 
-		case 30041:
+		case 30041: {
 			// Publication content (replaceable)
 			addPublishedAtIfReplaceable();
 			if (!metadata.title) {
@@ -208,8 +202,9 @@ export function buildTagsFromMetadata(
 			// NKBIP-08 tags (only for nested 30041 under 30040)
 			addNKBIP08TagsTo30041(tags, meta30041);
 			break;
+		}
 
-		case 30817:
+		case 30817: {
 			// Wiki page (Markdown) (replaceable)
 			addPublishedAtIfReplaceable();
 			if (!metadata.title) {
@@ -222,8 +217,9 @@ export function buildTagsFromMetadata(
 			if (meta30817.image) tags.push(["image", meta30817.image]);
 			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
 			break;
+		}
 
-		case 30818:
+		case 30818: {
 			// Wiki page (AsciiDoc) (replaceable)
 			addPublishedAtIfReplaceable();
 			if (!metadata.title) {
@@ -236,6 +232,7 @@ export function buildTagsFromMetadata(
 			if (meta30818.image) tags.push(["image", meta30818.image]);
 			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
 			break;
+		}
 	}
 
 	return tags;
@@ -276,7 +273,6 @@ export function createSignedEvent(
 	createdAt?: number
 ): SignedEvent {
 	const normalizedKey = normalizeSecretKey(privkey);
-	const pubkey = getPublicKey(normalizedKey);
 	const created_at = createdAt || Math.floor(Date.now() / 1000);
 
 	// Ensure tags is always an array (never undefined or null)

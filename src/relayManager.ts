@@ -1,6 +1,5 @@
-import { Relay, getPublicKey } from "nostr-tools";
-import { RelayInfo } from "./types";
-import { normalizeSecretKey } from "./nostr/eventBuilder";
+import { Relay } from "nostr-tools";
+import { RelayInfo, ScriptoriumSettings } from "./types";
 import { safeConsoleError } from "./utils/security";
 
 /**
@@ -52,20 +51,19 @@ export async function fetchRelayListFromRelay(
 	pubkey: string,
 	timeout: number = 5000
 ): Promise<RelayInfo[] | null> {
-	return new Promise(async (resolve) => {
-		let relay: Relay | null = null;
-		const timer = setTimeout(() => {
-			if (relay) {
-				relay.close();
-			}
-			resolve(null);
-		}, timeout);
+	let relay: Relay | null = null;
 
-		try {
-			relay = new Relay(relayUrl);
-			await relay.connect();
+	try {
+		relay = new Relay(relayUrl);
+		await relay.connect();
 
-			const sub = relay.subscribe(
+		return await new Promise<RelayInfo[] | null>((resolve) => {
+			const timer = setTimeout(() => {
+				relay?.close();
+				resolve(null);
+			}, timeout);
+
+			const sub = relay!.subscribe(
 				[
 					{
 						kinds: [10002],
@@ -88,22 +86,18 @@ export async function fetchRelayListFromRelay(
 				}
 			);
 
-			// Wait a bit for response
 			setTimeout(() => {
 				sub.close();
-				if (relay) {
-					relay.close();
-				}
+				relay?.close();
 			}, timeout - 100);
-		} catch (error) {
-			clearTimeout(timer);
-			if (relay) {
-				relay.close();
-			}
-			safeConsoleError(`Error fetching relay list from ${relayUrl}:`, error);
-			resolve(null);
+		});
+	} catch (error) {
+		if (relay) {
+			relay.close();
 		}
-	});
+		safeConsoleError(`Error fetching relay list from ${relayUrl}:`, error);
+		return null;
+	}
 }
 
 /**
@@ -199,6 +193,21 @@ export function normalizeRelayList(relayList: RelayInfo[]): RelayInfo[] {
 	}
 	
 	return normalized;
+}
+
+/**
+ * Merge configured relay list with default relay (normalized and deduplicated)
+ */
+export function getEffectiveRelayList(settings: ScriptoriumSettings): RelayInfo[] {
+	const merged = [...settings.relayList];
+	if (settings.defaultRelay?.trim()) {
+		merged.push({
+			url: settings.defaultRelay.trim(),
+			read: true,
+			write: true,
+		});
+	}
+	return normalizeRelayList(merged);
 }
 
 /**

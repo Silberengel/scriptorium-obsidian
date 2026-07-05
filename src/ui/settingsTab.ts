@@ -1,7 +1,15 @@
-import { App, PluginSettingTab, Setting, Notice } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice, TextComponent } from "obsidian";
 import ScriptoriumPlugin from "../main";
 import { EventKind } from "../types";
-import { fetchRelayList, addTheCitadelIfMissing, includesTheCitadel, getReadRelays, normalizeRelayUrl, normalizeRelayList } from "../relayManager";
+import {
+	fetchRelayList,
+	addTheCitadelIfMissing,
+	includesTheCitadel,
+	getReadRelays,
+	getEffectiveRelayList,
+	normalizeRelayUrl,
+	normalizeRelayList,
+} from "../relayManager";
 import { getPubkeyFromPrivkey, getNpubFromPrivkey } from "../nostr/eventBuilder";
 import { fetchUserProfile } from "../nostr/profileFetcher";
 
@@ -10,6 +18,7 @@ import { fetchUserProfile } from "../nostr/profileFetcher";
  */
 export class ScriptoriumSettingTab extends PluginSettingTab {
 	plugin: ScriptoriumPlugin;
+	private newRelayUrlInput: TextComponent | null = null;
 
 	constructor(app: App, plugin: ScriptoriumPlugin) {
 		super(app, plugin);
@@ -20,31 +29,30 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 
 		containerEl.empty();
+		this.newRelayUrlInput = null;
 
 		containerEl.createEl("h2", { text: "Scriptorium Nostr Settings" });
 
-		// User Identity (npub and handle) or Private Key Input
-		if (this.plugin.settings.privateKey) {
+		const privkey = this.plugin.getPrivateKey();
+
+		if (privkey) {
 			try {
-				const npub = getNpubFromPrivkey(this.plugin.settings.privateKey);
-				const pubkey = getPubkeyFromPrivkey(this.plugin.settings.privateKey);
-				
-				// Fetch profile to get handle/name
+				const npub = getNpubFromPrivkey(privkey);
+				const pubkey = getPubkeyFromPrivkey(privkey);
+
 				let profile: { name?: string; display_name?: string; username?: string; nip05?: string } | null = null;
-				const readRelays = getReadRelays(this.plugin.settings.relayList);
+				const readRelays = getReadRelays(getEffectiveRelayList(this.plugin.settings));
 				if (readRelays.length > 0) {
 					profile = await fetchUserProfile(pubkey, readRelays);
 				}
-				
-				// Priority: nip05 (handle) > display_name > name > username > "Unknown"
-				const displayName = profile?.nip05 || 
-				                    profile?.display_name || 
-				                    profile?.name || 
-				                    profile?.username || 
-				                    "Unknown";
-				
-				// Build description with what we found
-				let identityDesc = "Your Nostr public identity";
+
+				const displayName = profile?.nip05 ||
+					profile?.display_name ||
+					profile?.name ||
+					profile?.username ||
+					"Unknown";
+
+				let identityDesc = "Your Nostr public identity (key loaded from SCRIPTORIUM_OBSIDIAN_KEY)";
 				if (profile) {
 					const parts: string[] = [];
 					if (profile.nip05) parts.push(`NIP-05: ${profile.nip05}`);
@@ -58,7 +66,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 				} else {
 					identityDesc += "\n(No read relays configured - fetch relay list first)";
 				}
-				
+
 				new Setting(containerEl)
 					.setName("Your Identity")
 					.setDesc(identityDesc)
@@ -70,12 +78,6 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 						button.setButtonText("Refresh")
 							.setCta()
 							.onClick(async () => {
-								const loaded = await this.plugin.loadPrivateKey();
-								if (loaded) {
-									new Notice("Private key loaded from environment variable");
-								} else {
-									new Notice("Could not load private key from SCRIPTORIUM_OBSIDIAN_KEY environment variable");
-								}
 								await this.display();
 							});
 					});
@@ -87,7 +89,6 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 						button.setButtonText("Refresh")
 							.setCta()
 							.onClick(async () => {
-								await this.plugin.loadPrivateKey();
 								await this.display();
 							});
 					});
@@ -95,23 +96,21 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		} else {
 			new Setting(containerEl)
 				.setName("Private Key")
-				.setDesc("Set SCRIPTORIUM_OBSIDIAN_KEY environment variable to load your private key. Use the startup script with --generate-key to create a new key.")
+				.setDesc("Set SCRIPTORIUM_OBSIDIAN_KEY in your environment and restart Obsidian. The key is never stored in vault settings. Use ./start-obsidian.sh --generate-key to create a new key.")
 				.addButton((button) => {
 					button.setButtonText("Refresh")
 						.setCta()
 						.onClick(async () => {
-							const loaded = await this.plugin.loadPrivateKey();
-							if (loaded) {
+							if (this.plugin.getPrivateKey()) {
 								new Notice("Private key loaded from environment variable");
 								await this.display();
 							} else {
-								new Notice("Could not load private key. Set SCRIPTORIUM_OBSIDIAN_KEY environment variable and restart Obsidian.");
+								new Notice("Could not load private key. Set SCRIPTORIUM_OBSIDIAN_KEY and restart Obsidian.");
 							}
 						});
 				});
 		}
 
-		// Default Event Kind
 		new Setting(containerEl)
 			.setName("Default Event Kind")
 			.setDesc("Default event kind for new documents")
@@ -131,7 +130,6 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Suggest TheCitadel
 		new Setting(containerEl)
 			.setName("Suggest TheCitadel Relay")
 			.setDesc("Automatically suggest adding wss://thecitadel.nostr1.com to relay list")
@@ -143,10 +141,9 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Default Relay
 		new Setting(containerEl)
 			.setName("Default Relay")
-			.setDesc("Fallback relay URL if no relay list is found")
+			.setDesc("Always included in your relay list (read + write), normalized and deduplicated with fetched relays")
 			.addText((text) => {
 				text.setValue(this.plugin.settings.defaultRelay)
 					.setPlaceholder("wss://relay.example.com")
@@ -156,19 +153,6 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Auto AUTH
-		new Setting(containerEl)
-			.setName("Auto AUTH")
-			.setDesc("Automatically handle relay authentication when required")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.autoAuth)
-					.onChange(async (value) => {
-						this.plugin.settings.autoAuth = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		// Relay List Management
 		containerEl.createEl("h3", { text: "Relay List" });
 
 		new Setting(containerEl)
@@ -178,22 +162,21 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 				button.setButtonText("Fetch")
 					.setCta()
 					.onClick(async () => {
-						if (!this.plugin.settings.privateKey) {
-							alert("Please set your private key first");
+						const fetchPrivkey = this.plugin.getPrivateKey();
+						if (!fetchPrivkey) {
+							alert("Set SCRIPTORIUM_OBSIDIAN_KEY and restart Obsidian first");
 							return;
 						}
 
 						try {
-							const pubkey = getPubkeyFromPrivkey(this.plugin.settings.privateKey);
+							const pubkey = getPubkeyFromPrivkey(fetchPrivkey);
 							const relayList = await fetchRelayList(pubkey);
 
-							// Add TheCitadel if suggested
 							let finalList = relayList;
 							if (this.plugin.settings.suggestTheCitadel && !includesTheCitadel(relayList)) {
 								finalList = addTheCitadelIfMissing(relayList);
 							}
-							
-							// Normalize and deduplicate before saving
+
 							this.plugin.settings.relayList = normalizeRelayList(finalList);
 							await this.plugin.saveSettings();
 							await this.display();
@@ -203,18 +186,16 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Display current relay list
-		if (this.plugin.settings.relayList.length > 0) {
-			containerEl.createEl("h4", { text: "Current Relays" });
-			this.plugin.settings.relayList.forEach((relay, index) => {
+		const effectiveRelays = getEffectiveRelayList(this.plugin.settings);
+		if (effectiveRelays.length > 0) {
+			containerEl.createEl("h4", { text: "Effective Relays (including default)" });
+			effectiveRelays.forEach((relay) => {
 				const relayDiv = containerEl.createDiv({ cls: "scriptorium-relay-item" });
-				
-				// Display URL without ReadWrite suffix
+
 				const urlSpan = relayDiv.createSpan({ text: relay.url });
 				urlSpan.style.fontFamily = "monospace";
 				urlSpan.style.marginRight = "8px";
-				
-				// Display permissions as badges
+
 				const badges = relayDiv.createSpan({ cls: "scriptorium-relay-badges" });
 				if (relay.read && relay.write) {
 					badges.createSpan({ text: "Read/Write", cls: "scriptorium-badge" });
@@ -223,7 +204,27 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 				} else if (relay.write) {
 					badges.createSpan({ text: "Write", cls: "scriptorium-badge" });
 				}
-				
+			});
+		}
+
+		if (this.plugin.settings.relayList.length > 0) {
+			containerEl.createEl("h4", { text: "Saved Relays" });
+			this.plugin.settings.relayList.forEach((relay, index) => {
+				const relayDiv = containerEl.createDiv({ cls: "scriptorium-relay-item" });
+
+				const urlSpan = relayDiv.createSpan({ text: relay.url });
+				urlSpan.style.fontFamily = "monospace";
+				urlSpan.style.marginRight = "8px";
+
+				const badges = relayDiv.createSpan({ cls: "scriptorium-relay-badges" });
+				if (relay.read && relay.write) {
+					badges.createSpan({ text: "Read/Write", cls: "scriptorium-badge" });
+				} else if (relay.read) {
+					badges.createSpan({ text: "Read", cls: "scriptorium-badge" });
+				} else if (relay.write) {
+					badges.createSpan({ text: "Write", cls: "scriptorium-badge" });
+				}
+
 				new Setting(relayDiv)
 					.addButton((button) => {
 						button.setButtonText("Remove")
@@ -237,19 +238,18 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 			});
 		}
 
-		// Manual relay addition
 		containerEl.createEl("h4", { text: "Add Relay" });
 		new Setting(containerEl)
 			.setName("Relay URL")
 			.addText((text) => {
+				this.newRelayUrlInput = text;
 				text.setPlaceholder("wss://relay.example.com");
 			})
 			.addButton((button) => {
 				button.setButtonText("Add")
 					.setCta()
 					.onClick(async () => {
-						const input = button.buttonEl.previousElementSibling as HTMLInputElement;
-						const url = input.value.trim();
+						const url = this.newRelayUrlInput?.getValue().trim();
 						if (url) {
 							const normalizedUrl = normalizeRelayUrl(url);
 							if (!this.plugin.settings.relayList.some((r) => normalizeRelayUrl(r.url) === normalizedUrl)) {
@@ -258,9 +258,9 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 									read: true,
 									write: true,
 								});
-								// Normalize and deduplicate the entire list
 								this.plugin.settings.relayList = normalizeRelayList(this.plugin.settings.relayList);
 								await this.plugin.saveSettings();
+								this.newRelayUrlInput?.setValue("");
 								await this.display();
 							}
 						}

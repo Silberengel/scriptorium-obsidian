@@ -46,4 +46,16 @@ const devConfig = {
 
 const config = isProduction ? prodConfig : devConfig;
 
-esbuild.build(config).catch(() => process.exit(1));
+(async () => {
+	try {
+		if (isProduction) {
+			await esbuild.build(config);
+		} else {
+			const ctx = await esbuild.context(config);
+			await ctx.watch();
+			console.log("Watching for changes...");
+		}
+	} catch {
+		process.exit(1);
+	}
+})();

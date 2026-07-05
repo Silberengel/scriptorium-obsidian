@@ -1,6 +1,5 @@
 import { TFile } from "obsidian";
 import {
-	EventKind,
 	EventMetadata,
 	SignedEvent,
 	StructureNode,
@@ -15,7 +14,7 @@ import {
 	normalizeDTag,
 } from "./nostr/eventBuilder";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
-import { readMetadata, mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
+import { mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
 import { isAsciiDocFile } from "./utils/fileExtensions";
 import {
 	buildNKBIP08TagsFor30041,
@@ -34,7 +33,7 @@ export async function buildSimpleEvent(
 	content: string,
 	metadata: EventMetadata,
 	privkey: string,
-	app: any
+	_app: any
 ): Promise<SignedEvent[]> {
 	// Strip metadata from content before publishing
 	const cleanContent = stripMetadataFromContent(file, content);
@@ -51,7 +50,7 @@ export async function buildAsciiDocEvents(
 	content: string,
 	metadata: EventMetadata,
 	privkey: string,
-	app: any
+	_app: any
 ): Promise<EventCreationResult> {
 	if (metadata.kind !== 30040 && metadata.kind !== 30041 && metadata.kind !== 30818) {
 		throw new Error("AsciiDoc events must be kind 30040, 30041, or 30818");
@@ -220,19 +219,16 @@ export async function buildAsciiDocEvents(
 	// Build events starting from root (no parent, book title is root title, isParentRoot=false for root itself)
 	await buildEventsFromNode(rootNode, metadata as Kind30040Metadata, rootBookTitle, false, metadata as Kind30040Metadata);
 
-	// Sort events: root book first, then chapter indexes, then content (for proper dependency order)
-	// Root book is identified by having the root d-tag
+	// Sort events for publish order: 30041 content first, chapter indexes, root 30040 last
 	const rootDTag = normalizeDTag(metadata.title);
 	events.sort((a, b) => {
-		// Root book (30040 with root d-tag) comes first
 		const aIsRoot = a.kind === 30040 && a.tags.find(t => t[0] === "d")?.[1] === rootDTag;
 		const bIsRoot = b.kind === 30040 && b.tags.find(t => t[0] === "d")?.[1] === rootDTag;
-		if (aIsRoot && !bIsRoot) return -1;
-		if (!aIsRoot && bIsRoot) return 1;
-		
-		// Then other 30040 indexes, then 30041 content
-		if (a.kind === 30040 && b.kind === 30041) return -1;
-		if (a.kind === 30041 && b.kind === 30040) return 1;
+		if (aIsRoot && !bIsRoot) return 1;
+		if (!aIsRoot && bIsRoot) return -1;
+
+		if (a.kind === 30041 && b.kind === 30040) return -1;
+		if (a.kind === 30040 && b.kind === 30041) return 1;
 		return 0;
 	});
 
@@ -247,7 +243,7 @@ export async function buildEvents(
 	content: string,
 	metadata: EventMetadata,
 	privkey: string,
-	app: any
+	_app: any
 ): Promise<EventCreationResult> {
 	// Check if this is an AsciiDoc document with structure
 	const hasStructure = isAsciiDocFile(file) && isAsciiDocDocument(content);

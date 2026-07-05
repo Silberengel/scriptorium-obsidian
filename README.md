@@ -2,9 +2,11 @@
 
 An Obsidian plugin for creating, editing, and publishing Nostr document events directly from your vault.
 
-**Author**: Silberengel  
-**Homepage**: https://gitcitadel.com  
-**Lightning tips**: gitcitadel@getalby.com
+**Author:** [Silberengel](https://jumble.imwald.eu/users/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z)
+
+**This repo:** 
+on Gitea https://git.imwald.eu/silberengel/scriptorium-obsidian
+on GitHub https://github.com/Silberengel/scriptorium-obsidian
 
 ## Features
 
@@ -17,6 +19,8 @@ An Obsidian plugin for creating, editing, and publishing Nostr document events d
 - **Automatic relay management**: Fetch relay lists (kind 10002) with AUTH support
 
 ## Quick Start
+
+Before beginning, install Obsidian and create a vault. Use the folder location of the vault in place of `~/Documents/MyVault`.
 
 ### Installation
 
@@ -33,19 +37,19 @@ The script automatically installs dependencies, builds the plugin, and starts Ob
 ### Setup
 
 1. **Generate a Nostr key** (if needed):
-   ```bash
+  ```bash
    ./start-obsidian.sh --generate-key
-   ```
+  ```
    Add the shown export command to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
-
-2. **Set your private key**:
-   ```bash
+2. **Set your private key** (env-only — never stored in vault settings):
+  ```bash
    export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
-   ```
-
+  ```
+   Restart Obsidian after setting the variable (launch via `./start-obsidian.sh` so the shell environment is inherited).
 3. **Configure relays**:
-   - Open Obsidian Settings → Scriptorium Nostr
-   - Click "Fetch" to get your relay list
+  - Open Obsidian Settings → Scriptorium Nostr
+  - Set your **Default Relay** (always included in read/write relay list)
+  - Click "Fetch" to get your kind 10002 relay list
 
 ## Usage
 
@@ -69,6 +73,7 @@ The script automatically installs dependencies, builds the plugin, and starts Ob
 - **Edit Metadata** - Open metadata editor for current file
 - **Preview Document Structure** - Show event hierarchy (AsciiDoc structured documents only)
 - **New Nostr Document** - Create a new document with metadata template
+- **Delete Nostr Events** - Remove the `{filename}_events.jsonl` sidecar for the current file
 
 ## File Formats
 
@@ -96,6 +101,7 @@ topics: "bitcoin, nostr"
 Supported event kinds: **30040**, **30041**, **30818**
 
 **Simple AsciiDoc** (kind 30818):
+
 ```asciidoc
 = Wiki Page Title
 
@@ -107,6 +113,7 @@ Supported event kinds: **30040**, **30041**, **30818**
 ```
 
 **Structured AsciiDoc** (kind 30040 with nested 30041):
+
 ```asciidoc
 = Book Title
 
@@ -127,6 +134,7 @@ Section content...
 ```
 
 **Two-level structure** (book + chapters, no sections):
+
 ```asciidoc
 = Book Title
 
@@ -164,15 +172,17 @@ All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers onl
 
 ## Event Kinds
 
-| Kind | Format | Description | Title Required |
-|------|--------|-------------|---------------|
-| 1 | Markdown | Normal note | No |
-| 11 | Markdown | Discussion thread OP | Yes |
-| 30023 | Markdown | Long-form article | Yes |
-| 30040 | AsciiDoc | Publication index | Yes |
-| 30041 | AsciiDoc | Publication content | Yes |
-| 30817 | Markdown | Wiki page | Yes |
-| 30818 | AsciiDoc | Wiki page | Yes |
+
+| Kind  | Format   | Description          | Title Required |
+| ----- | -------- | -------------------- | -------------- |
+| 1     | Markdown | Normal note          | No             |
+| 11    | Markdown | Discussion thread OP | Yes            |
+| 30023 | Markdown | Long-form article    | Yes            |
+| 30040 | AsciiDoc | Publication index    | Yes            |
+| 30041 | AsciiDoc | Publication content  | Yes            |
+| 30817 | Markdown | Wiki page            | Yes            |
+| 30818 | AsciiDoc | Wiki page            | Yes            |
+
 
 ### Stand-alone vs Nested 30041
 
@@ -201,9 +211,11 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 ### Kind-Specific Fields
 
 **30023 (Article)**:
+
 - No additional fields beyond common ones
 
 **30040 (Publication Index)**:
+
 - `type` - Publication type (book, illustrated, magazine, documentation, academic, blog)
 - `version` - Version or edition
 - `published_on` - Publication date
@@ -214,6 +226,7 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 - `version_tag` - NKBIP-08 version identifier (v tag) - If set in root 30040, inherited by all events in the hierarchy
 
 **30041 (Publication Content)**:
+
 - **Stand-alone**: Same as 30023 (image, summary, topics)
 - **Nested** (under 30040): NKBIP-08 tags
   - `collection_id` - Inherited from root 30040 (C tag)
@@ -234,10 +247,14 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 
 ## Development
 
+Requires desktop Obsidian (`isDesktopOnly` in manifest).
+
 ```bash
 npm install
-npm run dev    # Watch mode
-npm run build  # Production build
+npm run dev      # Watch mode — rebuilds on file changes
+npm run build    # Production build
+npm run lint     # ESLint check
+npm run lint:fix # ESLint auto-fix
 ```
 
 ## License

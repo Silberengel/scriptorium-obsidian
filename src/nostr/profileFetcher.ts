@@ -53,22 +53,20 @@ async function fetchProfileFromRelay(
 	pubkey: string,
 	timeout: number
 ): Promise<UserProfile | null> {
-	return new Promise(async (resolve) => {
-		let relay: Relay | null = null;
-		const timer = setTimeout(() => {
-			if (relay) {
-				relay.close();
-			}
-			resolve(null);
-		}, timeout);
+	let relay: Relay | null = null;
 
-		try {
-			relay = new Relay(relayUrl);
-			await relay.connect();
+	try {
+		relay = new Relay(relayUrl);
+		await relay.connect();
 
+		return await new Promise<UserProfile | null>((resolve) => {
 			let profileReceived = false;
-			
-			const sub = relay.subscribe(
+			const timer = setTimeout(() => {
+				relay?.close();
+				resolve(null);
+			}, timeout);
+
+			const sub = relay!.subscribe(
 				[
 					{
 						kinds: [0],
@@ -78,20 +76,19 @@ async function fetchProfileFromRelay(
 				],
 				{
 					onevent: (event) => {
-						if (profileReceived) return; // Only process first event
+						if (profileReceived) return;
 						profileReceived = true;
 						clearTimeout(timer);
 						sub.close();
 						relay?.close();
 						try {
 							const profile = JSON.parse(event.content) as UserProfile;
-							// Validate that we got some profile data
 							if (profile && (profile.name || profile.display_name || profile.nip05 || profile.username)) {
 								resolve(profile);
 							} else {
 								resolve(null);
 							}
-						} catch (error) {
+						} catch {
 							resolve(null);
 						}
 					},
@@ -106,22 +103,17 @@ async function fetchProfileFromRelay(
 				}
 			);
 
-			// Wait for response with timeout
 			setTimeout(() => {
 				if (!profileReceived) {
 					sub.close();
-					if (relay) {
-						relay.close();
-					}
-					resolve(null);
+					relay?.close();
 				}
 			}, timeout);
-		} catch (error) {
-			clearTimeout(timer);
-			if (relay) {
-				relay.close();
-			}
-			resolve(null);
+		});
+	} catch {
+		if (relay) {
+			relay.close();
 		}
-	});
+		return null;
+	}
 }

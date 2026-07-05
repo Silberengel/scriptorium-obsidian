@@ -1,6 +1,5 @@
 import { App, Modal, Setting } from "obsidian";
 import { EventKind } from "../types";
-import { createDefaultMetadata, writeMetadata } from "../metadataManager";
 
 /**
  * Modal for creating a new Nostr document

@@ -1,5 +1,5 @@
 import { Modal, App, Setting } from "obsidian";
-import { EventMetadata, EventKind } from "../types";
+import { EventMetadata } from "../types";
 
 /**
  * Modal for editing event metadata

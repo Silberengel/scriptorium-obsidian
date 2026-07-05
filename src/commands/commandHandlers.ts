@@ -1,10 +1,10 @@
 import { TFile, TFolder, App, Notice } from "obsidian";
-import { EventKind, EventMetadata, ScriptoriumSettings } from "../types";
+import { EventKind, EventMetadata, SignedEvent, ScriptoriumSettings } from "../types";
 import { readMetadata, writeMetadata, createDefaultMetadata, validateMetadata, mergeWithHeaderTitle } from "../metadataManager";
 import { buildEvents } from "../eventManager";
-import { saveEvents, loadEvents, eventsFileExists, getEventsFilePath } from "../eventStorage";
+import { saveEvents, loadEvents, eventsFileExists, getEventsFilePath, deleteEvents } from "../eventStorage";
 import { publishEventsWithRetry } from "../nostr/relayClient";
-import { getWriteRelays } from "../relayManager";
+import { getWriteRelays, getEffectiveRelayList } from "../relayManager";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "../asciidocParser";
 import { validateAsciiDocDocument } from "../asciidocValidator";
 import { verifyEventSecurity } from "../utils/security";
@@ -15,6 +15,9 @@ import { StructurePreviewModal } from "../ui/structurePreviewModal";
 import { MetadataReminderModal } from "../ui/metadataReminderModal";
 import { MetadataModal } from "../ui/metadataModal";
 import { isAsciiDocFile } from "../utils/fileExtensions";
+
+const MISSING_KEY_NOTICE =
+	"Set SCRIPTORIUM_OBSIDIAN_KEY in your environment and restart Obsidian";
 
 /**
  * Get the current active file
@@ -39,13 +42,11 @@ export async function ensureNostrNotesFolder(
 	const kindFolder = getFolderNameForKind(kind);
 	const fullPath = `${baseFolder}/${kindFolder}`;
 
-	// Check if base folder exists
 	const baseFolderObj = app.vault.getAbstractFileByPath(baseFolder);
 	if (!baseFolderObj || !(baseFolderObj instanceof TFolder)) {
 		await app.vault.createFolder(baseFolder);
 	}
 
-	// Check if kind folder exists
 	const kindFolderObj = app.vault.getAbstractFileByPath(fullPath);
 	if (!kindFolderObj || !(kindFolderObj instanceof TFolder)) {
 		await app.vault.createFolder(fullPath);
@@ -55,15 +56,46 @@ export async function ensureNostrNotesFolder(
 }
 
 /**
+ * Save events to jsonl and open the events file in the workspace
+ */
+async function saveAndOpenEvents(
+	app: App,
+	file: TFile,
+	events: SignedEvent[]
+): Promise<void> {
+	const eventsPath = getEventsFilePath(file);
+	await saveEvents(file, events, app);
+
+	const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
+	if (eventsFile && eventsFile instanceof TFile) {
+		try {
+			const leaf = app.workspace.getMostRecentLeaf();
+			if (leaf && leaf.view) {
+				await leaf.openFile(eventsFile, { active: true });
+			} else {
+				const newLeaf = app.workspace.getLeaf(true);
+				await newLeaf.openFile(eventsFile, { active: true });
+			}
+		} catch (openError: any) {
+			logError("Error opening events file", openError);
+		}
+	}
+
+	new Notice(`Created ${events.length} event(s) and saved to ${eventsPath}`);
+	log(`Events saved to: ${eventsPath}`);
+}
+
+/**
  * Handle creating Nostr events from current file
  */
 export async function handleCreateEvents(
 	app: App,
 	file: TFile,
-	settings: ScriptoriumSettings
+	settings: ScriptoriumSettings,
+	privkey: string | null
 ): Promise<void> {
-	if (!settings.privateKey) {
-		new Notice("Please set your private key in settings");
+	if (!privkey) {
+		new Notice(MISSING_KEY_NOTICE);
 		return;
 	}
 
@@ -71,7 +103,6 @@ export async function handleCreateEvents(
 		const content = await app.vault.read(file);
 		let metadata = await readMetadata(file, app);
 
-		// Determine event kind from file extension or metadata
 		const eventKind = determineEventKind(
 			file,
 			content,
@@ -79,158 +110,102 @@ export async function handleCreateEvents(
 			metadata?.kind
 		);
 
-		// Ensure folder structure exists before creating events
 		await ensureNostrNotesFolder(app, eventKind);
 
-		// Create default metadata if none exists and write it with placeholders
 		if (!metadata) {
 			metadata = createDefaultMetadata(eventKind);
 			await writeMetadata(file, metadata, app);
-			// Re-read to get the formatted version with placeholders
 			metadata = await readMetadata(file, app) || metadata;
 		}
 
-		// Merge with header title for 30040
 		if (eventKind === 30040 && isAsciiDocDocument(content)) {
 			const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
 			metadata = mergeWithHeaderTitle(metadata, headerTitle);
 		}
 
-		// Show reminder modal before proceeding
 		new MetadataReminderModal(app, eventKind, async () => {
 			try {
 				log("Metadata reminder modal confirmed, starting event creation");
-				// Re-read metadata after user confirms (they may have updated it)
 				const updatedContent = await app.vault.read(file);
-			let updatedMetadata: EventMetadata = await readMetadata(file, app) || metadata || createDefaultMetadata(eventKind);
-			
-			// Ensure we have valid metadata
-			if (!updatedMetadata) {
-				updatedMetadata = createDefaultMetadata(eventKind);
-			}
+				let updatedMetadata: EventMetadata = await readMetadata(file, app) || metadata || createDefaultMetadata(eventKind);
 
-			// Merge with header title for 30040
-			if (eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
-				const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
-				updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
-			}
+				if (!updatedMetadata) {
+					updatedMetadata = createDefaultMetadata(eventKind);
+				}
 
-			// Validate metadata
-			const validation = validateMetadata(updatedMetadata, eventKind);
-			if (!validation.valid) {
-				new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
-				return;
-			}
+				if (eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
+					const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+					updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
+				}
 
-			// Validate AsciiDoc structure if this is a structured AsciiDoc document
-			if (isAsciiDocFile(file) && eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
-				const asciiDocValidation = validateAsciiDocDocument(updatedContent);
-				if (!asciiDocValidation.valid) {
-					const errorMsg = `AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`;
-					if (asciiDocValidation.warnings.length > 0) {
-						new Notice(`${errorMsg}\n\nWarnings:\n${asciiDocValidation.warnings.join("\n")}`);
-					} else {
-						new Notice(errorMsg);
-					}
+				const validation = validateMetadata(updatedMetadata, eventKind);
+				if (!validation.valid) {
+					new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
 					return;
 				}
-				if (asciiDocValidation.warnings.length > 0) {
-					log(`AsciiDoc validation warnings: ${asciiDocValidation.warnings.join("; ")}`);
-				}
-			}
 
-			// Build events
-			if (!settings.privateKey) {
-				new Notice("Please set your private key in settings");
-				return;
-			}
-			
-			log(`Building events for file: ${file.path}, kind: ${eventKind}`);
-			const result = await buildEvents(file, updatedContent, updatedMetadata, settings.privateKey, app);
-			log(`buildEvents returned: ${result.events.length} events, ${result.errors.length} errors`);
-
-			if (result.errors.length > 0) {
-				new Notice(`Errors: ${result.errors.join(", ")}`);
-				logError("buildEvents returned errors", result.errors);
-				return;
-			}
-
-			// Check if any events were created
-			if (result.events.length === 0) {
-				new Notice("No events were created. Check metadata and content.");
-				logError("buildEvents returned 0 events", { file: file.path, metadata: updatedMetadata });
-				return;
-			}
-
-			// Security check: verify events don't contain private keys
-			for (const event of result.events) {
-				if (!verifyEventSecurity(event)) {
-					new Notice("Security error: Event contains private key. Aborting.");
-					logError("Event security check failed - event may contain private key");
-					return;
-				}
-			}
-
-			// Show preview for structured documents
-			if (result.structure.length > 0) {
-				new StructurePreviewModal(app, result.structure, async () => {
-					try {
-						const eventsPath = getEventsFilePath(file);
-						await saveEvents(file, result.events, app);
-						
-						// Try to open the events file in Obsidian
-						const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
-						if (eventsFile && eventsFile instanceof TFile) {
-							try {
-								const leaf = app.workspace.getMostRecentLeaf();
-								if (leaf && leaf.view) {
-									await leaf.openFile(eventsFile, { active: true });
-								} else {
-									const newLeaf = app.workspace.getLeaf("tab");
-									await newLeaf.openFile(eventsFile, { active: true });
-								}
-							} catch (openError: any) {
-								// If opening fails, just show the notice - file was saved successfully
-								logError("Error opening events file", openError);
-							}
+				if (isAsciiDocFile(file) && eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
+					const asciiDocValidation = validateAsciiDocDocument(updatedContent);
+					if (!asciiDocValidation.valid) {
+						const errorMsg = `AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`;
+						if (asciiDocValidation.warnings.length > 0) {
+							new Notice(`${errorMsg}\n\nWarnings:\n${asciiDocValidation.warnings.join("\n")}`);
+						} else {
+							new Notice(errorMsg);
 						}
-						
-						new Notice(`Created ${result.events.length} event(s) and saved to ${eventsPath}`);
-						log(`Events saved to: ${eventsPath}`);
+						return;
+					}
+					if (asciiDocValidation.warnings.length > 0) {
+						log(`AsciiDoc validation warnings: ${asciiDocValidation.warnings.join("; ")}`);
+					}
+				}
+
+				if (!privkey) {
+					new Notice(MISSING_KEY_NOTICE);
+					return;
+				}
+
+				log(`Building events for file: ${file.path}, kind: ${eventKind}`);
+				const result = await buildEvents(file, updatedContent, updatedMetadata, privkey, app);
+				log(`buildEvents returned: ${result.events.length} events, ${result.errors.length} errors`);
+
+				if (result.errors.length > 0) {
+					new Notice(`Errors: ${result.errors.join(", ")}`);
+					logError("buildEvents returned errors", result.errors);
+					return;
+				}
+
+				if (result.events.length === 0) {
+					new Notice("No events were created. Check metadata and content.");
+					logError("buildEvents returned 0 events", { file: file.path, metadata: updatedMetadata });
+					return;
+				}
+
+				for (const event of result.events) {
+					if (!verifyEventSecurity(event)) {
+						new Notice("Security error: Event contains private key. Aborting.");
+						logError("Event security check failed - event may contain private key");
+						return;
+					}
+				}
+
+				if (result.structure.length > 0) {
+					new StructurePreviewModal(app, result.structure, async () => {
+						try {
+							await saveAndOpenEvents(app, file, result.events);
+						} catch (error: any) {
+							showErrorNotice("Error saving events", error);
+							logError("Error saving events", error);
+						}
+					}).open();
+				} else {
+					try {
+						await saveAndOpenEvents(app, file, result.events);
 					} catch (error: any) {
 						showErrorNotice("Error saving events", error);
 						logError("Error saving events", error);
 					}
-				}).open();
-			} else {
-				try {
-					const eventsPath = getEventsFilePath(file);
-					await saveEvents(file, result.events, app);
-					
-					// Try to open the events file in Obsidian
-					const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
-					if (eventsFile && eventsFile instanceof TFile) {
-						try {
-							const leaf = app.workspace.getMostRecentLeaf();
-							if (leaf && leaf.view) {
-								await leaf.openFile(eventsFile, { active: true });
-							} else {
-								const newLeaf = app.workspace.getLeaf("tab");
-								await newLeaf.openFile(eventsFile, { active: true });
-							}
-						} catch (openError: any) {
-							// If opening fails, just show the notice - file was saved successfully
-							logError("Error opening events file", openError);
-						}
-					}
-					
-					new Notice(`Created ${result.events.length} event(s) and saved to ${eventsPath}`);
-					log(`Events saved to: ${eventsPath}`);
-				} catch (error: any) {
-					showErrorNotice("Error saving events", error);
-					logError("Error saving events", error);
 				}
-			}
 			} catch (error: any) {
 				showErrorNotice("Error creating events", error);
 				logError("Error in event creation callback", error);
@@ -278,10 +253,11 @@ export async function handlePreviewStructure(
 export async function handlePublishEvents(
 	app: App,
 	file: TFile,
-	settings: ScriptoriumSettings
+	settings: ScriptoriumSettings,
+	privkey: string | null
 ): Promise<void> {
-	if (!settings.privateKey) {
-		new Notice("Please set your private key in settings");
+	if (!privkey) {
+		new Notice(MISSING_KEY_NOTICE);
 		return;
 	}
 
@@ -298,18 +274,16 @@ export async function handlePublishEvents(
 			return;
 		}
 
-		const writeRelays = getWriteRelays(settings.relayList);
+		const writeRelays = getWriteRelays(getEffectiveRelayList(settings));
 		if (writeRelays.length === 0) {
 			new Notice("No write relays configured. Please fetch relay list in settings.");
 			return;
 		}
 
-		// Relays are already normalized and deduplicated by getWriteRelays
 		new Notice(`Publishing ${events.length} event(s) to ${writeRelays.length} relay(s)...`);
 
-		const results = await publishEventsWithRetry(writeRelays, events, settings.privateKey);
+		const results = await publishEventsWithRetry(writeRelays, events, privkey);
 
-		// Count successes
 		let successCount = 0;
 		let failureCount = 0;
 		results.forEach((relayResults) => {
@@ -334,6 +308,25 @@ export async function handlePublishEvents(
 }
 
 /**
+ * Handle deleting saved events for the current file
+ */
+export async function handleDeleteEvents(app: App, file: TFile): Promise<void> {
+	const exists = await eventsFileExists(file, app);
+	if (!exists) {
+		new Notice("No events file found for this document.");
+		return;
+	}
+
+	try {
+		await deleteEvents(file, app);
+		new Notice(`Deleted events file for ${file.name}`);
+	} catch (error: any) {
+		showErrorNotice("Error deleting events", error);
+		logError("Error deleting events", error);
+	}
+}
+
+/**
  * Handle editing metadata
  */
 export async function handleEditMetadata(
@@ -344,7 +337,6 @@ export async function handleEditMetadata(
 	try {
 		let metadata = await readMetadata(file, app);
 		if (!metadata) {
-			// Determine kind from file extension
 			const content = await app.vault.read(file);
 			const eventKind = determineEventKind(file, content, defaultEventKind);
 			metadata = createDefaultMetadata(eventKind);

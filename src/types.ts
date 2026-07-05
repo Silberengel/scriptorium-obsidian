@@ -6,11 +6,6 @@ import { Event as NostrEvent } from "nostr-tools";
 export type EventKind = 1 | 11 | 30023 | 30040 | 30041 | 30817 | 30818;
 
 /**
- * File content type
- */
-export type ContentType = "markdown" | "asciidoc";
-
-/**
  * Nostr event with additional metadata
  */
 export interface SignedEvent extends NostrEvent {
@@ -143,12 +138,6 @@ export interface ScriptoriumSettings {
 
 	// Event settings
 	defaultEventKind: EventKind;
-
-	// Key management
-	privateKey?: string; // from SCRIPTORIUM_OBSIDIAN_KEY env var
-
-	// AUTH preferences
-	autoAuth: boolean;
 }
 
 /**
@@ -200,5 +189,4 @@ export const DEFAULT_SETTINGS: ScriptoriumSettings = {
 	suggestTheCitadel: true,
 	defaultRelay: "wss://thecitadel.nostr1.com",
 	defaultEventKind: 1,
-	autoAuth: true,
 };

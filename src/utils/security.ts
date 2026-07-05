@@ -7,7 +7,7 @@
  * Private keys are 64 hex characters, but so are public keys and event IDs.
  * We can only identify private keys by context (error messages, variable names, etc.)
  */
-function isLikelyPrivateKey(context: string, hexString: string): boolean {
+function isLikelyPrivateKey(context: string, _hexString: string): boolean {
 	const lowerContext = context.toLowerCase();
 	
 	// Check for explicit private key indicators
@@ -113,14 +113,6 @@ export function sanitizeError(error: any): any {
 export function safeConsoleError(message: string, ...args: any[]): void {
 	const sanitizedArgs = args.map(arg => sanitizeError(arg));
 	console.error(sanitizeString(message), ...sanitizedArgs);
-}
-
-/**
- * Safe console.log that never logs private keys
- */
-export function safeConsoleLog(message: string, ...args: any[]): void {
-	const sanitizedArgs = args.map(arg => sanitizeError(arg));
-	console.log(sanitizeString(message), ...sanitizedArgs);
 }
 
 /**

@@ -1,55 +1,17 @@
-import { Relay, finalizeEvent, getPublicKey } from "nostr-tools";
+import { Relay, finalizeEvent } from "nostr-tools";
 import { normalizeSecretKey } from "./eventBuilder";
-import { safeConsoleError } from "../utils/security";
 
 /**
- * Handle AUTH challenge from relay (NIP-42)
+ * Set up NIP-42 auth handler on a relay before connecting
  */
-export async function handleAuthChallenge(
+export function ensureAuthenticated(
 	relay: Relay,
-	challenge: string,
-	privkey: string,
-	relayUrl: string
-): Promise<boolean> {
-	try {
-		const normalizedKey = normalizeSecretKey(privkey);
-
-		// Use relay.auth() method which handles the AUTH flow
-		// auth() returns a promise that resolves with a string (challenge response)
-		// We consider it successful if it doesn't throw
-		await relay.auth(async (eventTemplate) => {
-			return finalizeEvent(eventTemplate, normalizedKey);
-		});
-		return true;
-	} catch (error) {
-		safeConsoleError("Error handling AUTH challenge:", error);
-		return false;
-	}
-}
-
-/**
- * Check if relay requires AUTH and handle it
- */
-export async function ensureAuthenticated(
-	relay: Relay,
-	privkey: string,
-	relayUrl: string
-): Promise<boolean> {
-	try {
-		const normalizedKey = normalizeSecretKey(privkey);
-		
-		// Set up auth handler if relay sends challenge
-		relay.onauth = async (eventTemplate) => {
-			return finalizeEvent(eventTemplate, normalizedKey);
-		};
-
-		// Try to authenticate - this will only run if relay requires it
-		// The relay will call onauth if it needs authentication
-		return true;
-	} catch (error) {
-		safeConsoleError("Error ensuring authentication:", error);
-		return false;
-	}
+	privkey: string
+): void {
+	const normalizedKey = normalizeSecretKey(privkey);
+	relay.onauth = async (eventTemplate) => {
+		return finalizeEvent(eventTemplate, normalizedKey);
+	};
 }
 
 /**
@@ -58,22 +20,40 @@ export async function ensureAuthenticated(
 export async function handleAuthRequiredError(
 	relay: Relay,
 	privkey: string,
-	relayUrl: string,
-	originalOperation: () => Promise<any>
-): Promise<any> {
-	try {
-		const normalizedKey = normalizeSecretKey(privkey);
-		
-		// Authenticate using relay.auth()
-		await relay.auth(async (eventTemplate) => {
-			return finalizeEvent(eventTemplate, normalizedKey);
-		});
+	originalOperation: () => Promise<string>
+): Promise<string> {
+	const normalizedKey = normalizeSecretKey(privkey);
 
-		// Retry original operation
-		return originalOperation();
-	} catch (error: any) {
-		// Sanitize error message to prevent private key leaks
-		const safeMessage = error?.message ? String(error.message).replace(/nsec1[a-z0-9]{58,}/gi, "[REDACTED]").replace(/[0-9a-f]{64}/gi, "[REDACTED]") : "Unknown error";
-		throw new Error(`Failed to authenticate with relay: ${safeMessage}`);
-	}
+	await relay.auth(async (eventTemplate) => {
+		return finalizeEvent(eventTemplate, normalizedKey);
+	});
+
+	return originalOperation();
+}
+
+/**
+ * Check if a publish response indicates auth is required
+ */
+export function isAuthRequiredResponse(reason: string): boolean {
+	const lower = reason.toLowerCase();
+	return (
+		lower.includes("auth-required") ||
+		lower.includes("auth required") ||
+		lower.includes("not authorized") ||
+		lower.includes("unauthorized")
+	);
+}
+
+/**
+ * Check if a publish response indicates success
+ */
+export function isPublishSuccess(reason: string): boolean {
+	return (
+		reason !== "timeout" &&
+		!isAuthRequiredResponse(reason) &&
+		!reason.toLowerCase().includes("error") &&
+		!reason.toLowerCase().includes("blocked") &&
+		!reason.toLowerCase().includes("invalid") &&
+		!reason.toLowerCase().includes("restricted")
+	);
 }

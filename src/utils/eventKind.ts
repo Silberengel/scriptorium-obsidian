@@ -46,10 +46,3 @@ export function getFolderNameForKind(kind: EventKind): string {
 	};
 	return folderMap[kind];
 }
-
-/**
- * Check if event kind requires a title
- */
-export function requiresTitle(kind: EventKind): boolean {
-	return kind !== 1;
-}
