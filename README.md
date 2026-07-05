@@ -113,12 +113,19 @@ Run this **after** exporting the key in the same terminal:
 
 The script installs dependencies, builds the plugin, and launches Obsidian with your shell environment (including the key).
 
+Enable **Scriptorium Nostr** under **Settings → Community plugins** (gear icon opens plugin settings):
+
+![Enable Scriptorium Nostr in Community plugins](./assets/Settings.png)
+
 ### 3. Configure relays (inside Obsidian)
 
-1. Open **Settings → Scriptorium Nostr**
-2. Confirm **Your Identity** shows your npub (if it says to set the env var, close Obsidian, export the key, and run `./start-obsidian.sh` again)
-3. Set your **Default Relay** (always included in read/write relay list)
-4. Click **Fetch** to load your kind 10002 relay list
+Open **Settings → Community plugins → Scriptorium Nostr** (gear icon), or pick **Scriptorium Nostr** in the settings sidebar.
+
+![Scriptorium Nostr settings — identity and relays](./assets/AppSettings.png)
+
+1. Confirm **Your Identity** shows your npub and that it says the key was loaded from `SCRIPTORIUM_OBSIDIAN_KEY` (if not, close Obsidian, export the key, and run `./start-obsidian.sh` again)
+2. Set your **Default Relay** (always included in read/write relay list)
+3. Click **Fetch** to load your kind 10002 relay list
 
 ### Already installed but no key working?
 
@@ -132,6 +139,10 @@ export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
 Do not paste the key into Obsidian settings — it is not stored there and will not be read from the vault.
 
 ## Usage
+
+Click the **lightning bolt (Nostr)** icon in the left ribbon to open the main menu:
+
+![Nostr ribbon menu — write, create events, publish](./assets/Main_menu.png)
 
 ### Creating Events
 
@@ -326,7 +337,7 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 1. Clone repository
 2. Run `npm install && npm run build`
 3. Copy `main.js` and `manifest.json` to `.obsidian/plugins/scriptorium-obsidian/`
-4. Enable in Obsidian Settings → Community Plugins
+4. Enable in Obsidian Settings → Community Plugins (see screenshot in [Quick Start](#2-install-and-start-obsidian))
 5. Install [obsidian-asciidoc](https://github.com/dzruyk/obsidian-asciidoc) plugin (required for `.adoc` files)
 6. **Before using signing/publishing:** set `SCRIPTORIUM_OBSIDIAN_KEY` in your environment and restart Obsidian from a terminal that has the variable exported (see Quick Start step 1)
 
