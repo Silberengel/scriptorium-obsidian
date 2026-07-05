@@ -2,6 +2,7 @@ import { TFile } from "obsidian";
 import { KindTemplate, KindTemplateField, TemplateMetadata } from "./types";
 import { safeConsoleError } from "./utils/security";
 import { isMarkdownFile, isAsciiDocFile } from "./utils/fileExtensions";
+import { stripEmbeddedDocumentHelp } from "./documentHelp";
 
 const RESERVED_KEYS = new Set(["kind", "templateId", "published_at"]);
 
@@ -13,9 +14,16 @@ function getPlaceholder(field: KindTemplateField): string {
 	return field.description;
 }
 
-export function getKindDescription(template: KindTemplate): string {
-	const base = template.description || template.name;
-	return `**${template.name} (kind ${template.kind})**: ${base}`;
+export function extractTemplateId(file: TFile, content: string): string | null {
+	if (isMarkdownFile(file)) {
+		const { metadata } = parseMarkdownFrontmatter(content);
+		return typeof metadata.templateId === "string" ? metadata.templateId : null;
+	}
+	if (isAsciiDocFile(file)) {
+		const { metadata } = parseAsciiDocAttributes(content);
+		return typeof metadata.templateId === "string" ? metadata.templateId : null;
+	}
+	return null;
 }
 
 function isPlaceholder(value: unknown, field: KindTemplateField): boolean {
@@ -214,11 +222,10 @@ export async function readMetadata(
 }
 
 export function stripMetadataFromContent(file: TFile, content: string): string {
+	let body: string;
 	if (isMarkdownFile(file)) {
-		return parseMarkdownFrontmatter(content).body;
-	}
-
-	if (isAsciiDocFile(file)) {
+		body = parseMarkdownFrontmatter(content).body;
+	} else if (isAsciiDocFile(file)) {
 		const lines = content.split("\n");
 		const result: string[] = [];
 		let foundTitle = false;
@@ -241,10 +248,12 @@ export function stripMetadataFromContent(file: TFile, content: string): string {
 			if (!inAttributes || line === "") result.push(lines[i]);
 		}
 
-		return result.join("\n");
+		body = result.join("\n");
+	} else {
+		body = content;
 	}
 
-	return content;
+	return stripEmbeddedDocumentHelp(body);
 }
 
 function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTemplate): string {
@@ -282,20 +291,33 @@ function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTem
 }
 
 function appendDefaultBody(lines: string[], template: KindTemplate): void {
-	const help = getKindDescription(template);
 	if (template.kind === 1) {
-		lines.push("place your content here", "", "---", "", "**How to use this app:**", "1. Edit your content above", "2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar", "3. Select \"Create Nostr events\" to create and sign events", "4. Select \"Publish events to relays\" to publish to relays", "", help);
+		lines.push("place your content here");
 		return;
 	}
 	if (template.structured) {
-		lines.push("== This is the first chapter header", "", "=== This is the first sub-chapter header", "", "place your content here", "", "=== This is the second sub-chapter header", "", "place your content here", "", "== This is the second chapter header", "", "place your content here", "", "---", "", "**How to use this app:**", "", "1. Edit your content above", "2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar", "3. Select \"Create Nostr events\" to create and sign events", "4. Select \"Publish events to relays\" to publish to relays", "", help);
+		lines.push(
+			"== This is the first chapter header",
+			"",
+			"=== This is the first sub-chapter header",
+			"",
+			"place your content here",
+			"",
+			"=== This is the second sub-chapter header",
+			"",
+			"place your content here",
+			"",
+			"== This is the second chapter header",
+			"",
+			"place your content here"
+		);
 		return;
 	}
 	if (template.markup === "asciidoc") {
-		lines.push("== This is the first header in this document", "", "place your content here", "", "---", "", "**How to use this app:**", "", "1. Edit your content above", "2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar", "3. Select \"Create Nostr events\" to create and sign events", "4. Select \"Publish events to relays\" to publish to relays", "", help);
+		lines.push("== This is the first header in this document", "", "place your content here");
 		return;
 	}
-	lines.push("# This is the first header in this document", "", "place your content here", "", "---", "", "**How to use this app:**", "1. Edit your content above", "2. Click the Nostr menu button (lightning bolt icon ⚡) in the left sidebar", "3. Select \"Create Nostr events\" to create and sign events", "4. Select \"Publish events to relays\" to publish to relays", "", help);
+	lines.push("# This is the first header in this document", "", "place your content here");
 }
 
 export async function writeMetadata(
