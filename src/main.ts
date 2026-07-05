@@ -1,11 +1,12 @@
 import { Plugin, TFile, Notice, Menu } from "obsidian";
-import { ScriptoriumSettings, EventKind, DEFAULT_SETTINGS } from "./types";
+import { ScriptoriumSettings, DEFAULT_SETTINGS } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { NewDocumentModal } from "./ui/newDocumentModal";
 import { writeMetadata, createDefaultMetadata } from "./metadataManager";
 import { safeConsoleError } from "./utils/security";
 import { showErrorNotice } from "./utils/errorHandling";
 import { log, logError } from "./utils/console";
+import { ensureKindTemplates, getTemplateById, getSelectableTemplates, getFileExtension } from "./templateRegistry";
 import {
 	getCurrentFile,
 	ensureNostrNotesFolder,
@@ -21,7 +22,7 @@ export default class ScriptoriumPlugin extends Plugin {
 
 	async onload() {
 		log("Plugin loading...");
-		
+
 		try {
 			await this.loadSettings();
 
@@ -83,7 +84,7 @@ export default class ScriptoriumPlugin extends Plugin {
 						.setIcon("upload")
 						.onClick(() => this.handlePublishEvents());
 				});
-				
+
 				if (ribbonIcon) {
 					const rect = ribbonIcon.getBoundingClientRect();
 					menu.showAtPosition({ x: rect.left, y: rect.bottom + 5 });
@@ -91,9 +92,9 @@ export default class ScriptoriumPlugin extends Plugin {
 			});
 
 			this.addStatusBarItem().setText("Scriptorium");
-			
+
 			log("Plugin loaded successfully");
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logError("Error loading plugin", error);
 			safeConsoleError("Error loading plugin:", error);
 		}
@@ -103,9 +104,6 @@ export default class ScriptoriumPlugin extends Plugin {
 		log("Plugin unloading");
 	}
 
-	/**
-	 * Read private key from environment variable only (never persisted)
-	 */
 	getPrivateKey(): string | null {
 		try {
 			if (typeof process !== "undefined" && process.env?.SCRIPTORIUM_OBSIDIAN_KEY) {
@@ -122,19 +120,18 @@ export default class ScriptoriumPlugin extends Plugin {
 		const saved = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 
-		// One-time migration: remove legacy persisted private key
 		if (saved && "privateKey" in saved) {
-			delete (this.settings as any).privateKey;
-			delete (saved as any).privateKey;
+			delete (saved as Record<string, unknown>).privateKey;
 			await this.saveData(this.settings);
 			log("Removed legacy private key from saved settings");
 		}
 
-		// Remove legacy autoAuth if present
 		if (saved && "autoAuth" in saved) {
-			delete (this.settings as any).autoAuth;
-			await this.saveData(this.settings);
+			delete (saved as Record<string, unknown>).autoAuth;
 		}
+
+		ensureKindTemplates(this.settings);
+		await this.saveData(this.settings);
 	}
 
 	async saveSettings() {
@@ -150,7 +147,7 @@ export default class ScriptoriumPlugin extends Plugin {
 	private async handlePreviewStructure() {
 		const file = await getCurrentFile(this.app);
 		if (!file) return;
-		await handlePreviewStructure(this.app, file);
+		await handlePreviewStructure(this.app, file, this.settings);
 	}
 
 	private async handlePublishEvents() {
@@ -168,87 +165,76 @@ export default class ScriptoriumPlugin extends Plugin {
 	private async handleEditMetadata() {
 		const file = await getCurrentFile(this.app);
 		if (!file) return;
-		await handleEditMetadata(this.app, file, this.settings.defaultEventKind);
+		await handleEditMetadata(this.app, file, this.settings);
 	}
 
 	private async handleNewDocument() {
-		new NewDocumentModal(this.app, async (kind: EventKind, title: string) => {
-			try {
-				log(`Creating new document: kind=${kind}, title=${title}`);
-				
-				const folderPath = await ensureNostrNotesFolder(this.app, kind);
-				const sanitizedTitle = this.sanitizeFilename(title);
-				
-				let extension = "md";
-				if (kind === 30040 || kind === 30041 || kind === 30818) {
-					extension = "adoc";
-				}
-
-				const filename = `${sanitizedTitle}.${extension}`;
-				const filePath = `${folderPath}/${filename}`;
-
-				const existingFile = this.app.vault.getAbstractFileByPath(filePath);
-				if (existingFile) {
-					new Notice(`File ${filename} already exists`);
-					return;
-				}
-
-				let content = "";
-				if (kind === 30040 || kind === 30041 || kind === 30818) {
-					content = `= ${title}\n\n`;
-				} else if (kind === 30023 || kind === 30817) {
-					content = `# ${title}\n\n`;
-				} else if (kind === 1 || kind === 11) {
-					content = `\n`;
-				}
-
-				if (!content) {
-					content = "\n";
-				}
-				
-				let file: TFile;
+		const templates = getSelectableTemplates(this.settings);
+		new NewDocumentModal(
+			this.app,
+			templates,
+			this.settings.defaultTemplateId,
+			async (templateId: string, title: string) => {
 				try {
-					log(`Creating file: ${filePath}`);
-					file = await this.app.vault.create(filePath, content);
-					log(`File created successfully: ${file.path}`);
-					
-					const verifyFile = this.app.vault.getAbstractFileByPath(filePath);
-					if (!verifyFile || !(verifyFile instanceof TFile)) {
-						const msg = `Error: File ${filename} was not created properly`;
-						log(msg);
-						new Notice(msg);
-						logError("File creation verification failed", { filePath });
+					const template = getTemplateById(templateId, this.settings);
+					if (!template) {
+						new Notice(`Unknown template: ${templateId}`);
 						return;
 					}
-				} catch (error: any) {
-					logError("Error creating file", error);
-					showErrorNotice("Error creating file", error);
-					return;
-				}
 
-				const metadata = createDefaultMetadata(kind);
-				if (kind !== 1 && title && title.trim()) {
-					(metadata as any).title = title.trim();
-				}
-				
-				try {
-					await writeMetadata(file, metadata, this.app);
-				} catch (error: any) {
-					showErrorNotice("Error creating metadata", error);
-					safeConsoleError("Error creating metadata:", error);
-				}
+					log(`Creating new document: template=${templateId}, title=${title}`);
 
-				const opened = await this.openNewFile(file);
-				if (opened) {
-					new Notice(`Created and opened ${filename}`);
-				} else {
-					new Notice(`Created ${filename} in ${folderPath}. You may need to open it manually.`);
+					const folderPath = await ensureNostrNotesFolder(this.app, template);
+					const sanitizedTitle = this.sanitizeFilename(title);
+					const extension = getFileExtension(template);
+					const filename = `${sanitizedTitle}.${extension}`;
+					const filePath = `${folderPath}/${filename}`;
+
+					if (this.app.vault.getAbstractFileByPath(filePath)) {
+						new Notice(`File ${filename} already exists`);
+						return;
+					}
+
+					let content = "";
+					if (template.markup === "asciidoc") {
+						content = `= ${title}\n\n`;
+					} else if (template.kind !== 1) {
+						content = `# ${title}\n\n`;
+					} else {
+						content = "\n";
+					}
+
+					let file: TFile;
+					try {
+						file = await this.app.vault.create(filePath, content);
+						const verifyFile = this.app.vault.getAbstractFileByPath(filePath);
+						if (!verifyFile || !(verifyFile instanceof TFile)) {
+							new Notice(`Error: File ${filename} was not created properly`);
+							return;
+						}
+					} catch (error: unknown) {
+						showErrorNotice("Error creating file", error);
+						return;
+					}
+
+					const metadata = createDefaultMetadata(template, title);
+					try {
+						await writeMetadata(file, metadata, this.app, template);
+					} catch (error: unknown) {
+						showErrorNotice("Error creating metadata", error);
+					}
+
+					const opened = await this.openNewFile(file);
+					new Notice(
+						opened
+							? `Created and opened ${filename}`
+							: `Created ${filename} in ${folderPath}. You may need to open it manually.`
+					);
+				} catch (error: unknown) {
+					showErrorNotice("Error creating document", error);
 				}
-			} catch (error: any) {
-				showErrorNotice("Error creating document", error);
-				safeConsoleError("Error creating document:", error);
 			}
-		}).open();
+		).open();
 	}
 
 	private async openNewFile(file: TFile): Promise<boolean> {
@@ -258,16 +244,14 @@ export default class ScriptoriumPlugin extends Plugin {
 
 		try {
 			const leaf = this.app.workspace.getMostRecentLeaf();
-			if (leaf && leaf.view) {
+			if (leaf?.view) {
 				await leaf.openFile(file, { active: true });
 			} else {
-				const newLeaf = this.app.workspace.getLeaf(true);
-				await newLeaf.openFile(file, { active: true });
+				await this.app.workspace.getLeaf(true).openFile(file, { active: true });
 			}
 			return true;
-		} catch (error: any) {
+		} catch (error: unknown) {
 			logError("Error opening file", error);
-			safeConsoleError("Error opening file:", error);
 			return false;
 		}
 	}
@@ -279,14 +263,7 @@ export default class ScriptoriumPlugin extends Plugin {
 			.replace(/-+/g, "-")
 			.replace(/^-+|-+$/g, "");
 
-		if (sanitized.length > 100) {
-			sanitized = sanitized.substring(0, 100);
-		}
-
-		if (!sanitized) {
-			sanitized = "untitled";
-		}
-
-		return sanitized;
+		if (sanitized.length > 100) sanitized = sanitized.substring(0, 100);
+		return sanitized || "untitled";
 	}
 }

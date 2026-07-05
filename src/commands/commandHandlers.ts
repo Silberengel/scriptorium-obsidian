@@ -1,6 +1,12 @@
-import { TFile, TFolder, App, Notice } from "obsidian";
-import { EventKind, EventMetadata, SignedEvent, ScriptoriumSettings } from "../types";
-import { readMetadata, writeMetadata, createDefaultMetadata, validateMetadata, mergeWithHeaderTitle } from "../metadataManager";
+import { TFile, App, Notice } from "obsidian";
+import { TemplateMetadata, SignedEvent, ScriptoriumSettings, KindTemplate } from "../types";
+import {
+	readMetadata,
+	writeMetadata,
+	createDefaultMetadata,
+	validateMetadata,
+	mergeWithHeaderTitle,
+} from "../metadataManager";
 import { buildEvents } from "../eventManager";
 import { saveEvents, loadEvents, eventsFileExists, getEventsFilePath, deleteEvents } from "../eventStorage";
 import { publishEventsWithRetry } from "../nostr/relayClient";
@@ -10,7 +16,8 @@ import { validateAsciiDocDocument } from "../asciidocValidator";
 import { verifyEventSecurity } from "../utils/security";
 import { showErrorNotice } from "../utils/errorHandling";
 import { log, logError } from "../utils/console";
-import { determineEventKind, getFolderNameForKind } from "../utils/eventKind";
+import { determineTemplate } from "../utils/eventKind";
+import { resolveTemplate, getTemplateById, getFolderName } from "../templateRegistry";
 import { StructurePreviewModal } from "../ui/structurePreviewModal";
 import { MetadataReminderModal } from "../ui/metadataReminderModal";
 import { MetadataModal } from "../ui/metadataModal";
@@ -19,9 +26,21 @@ import { isAsciiDocFile } from "../utils/fileExtensions";
 const MISSING_KEY_NOTICE =
 	"Set SCRIPTORIUM_OBSIDIAN_KEY in your environment and restart Obsidian";
 
-/**
- * Get the current active file
- */
+/** Resolve template and read metadata with placeholder filtering for that template. */
+async function readDocumentMetadata(
+	app: App,
+	file: TFile,
+	content: string,
+	settings: ScriptoriumSettings
+): Promise<{ metadata: TemplateMetadata | null; template: KindTemplate }> {
+	const preliminary = await readMetadata(file, app);
+	const template = determineTemplate(file, content, settings, preliminary);
+	const metadata = preliminary
+		? ((await readMetadata(file, app, template)) ?? preliminary)
+		: null;
+	return { metadata, template };
+}
+
 export async function getCurrentFile(app: App): Promise<TFile | null> {
 	const activeFile = app.workspace.getActiveFile();
 	if (!activeFile) {
@@ -31,63 +50,39 @@ export async function getCurrentFile(app: App): Promise<TFile | null> {
 	return activeFile;
 }
 
-/**
- * Ensure the Nostr notes folder structure exists
- */
-export async function ensureNostrNotesFolder(
-	app: App,
-	kind: EventKind
-): Promise<string> {
+export async function ensureNostrNotesFolder(app: App, template: KindTemplate): Promise<string> {
 	const baseFolder = "Nostr notes";
-	const kindFolder = getFolderNameForKind(kind);
+	const kindFolder = getFolderName(template);
 	const fullPath = `${baseFolder}/${kindFolder}`;
 
-	const baseFolderObj = app.vault.getAbstractFileByPath(baseFolder);
-	if (!baseFolderObj || !(baseFolderObj instanceof TFolder)) {
+	if (!app.vault.getAbstractFileByPath(baseFolder)) {
 		await app.vault.createFolder(baseFolder);
 	}
-
-	const kindFolderObj = app.vault.getAbstractFileByPath(fullPath);
-	if (!kindFolderObj || !(kindFolderObj instanceof TFolder)) {
+	if (!app.vault.getAbstractFileByPath(fullPath)) {
 		await app.vault.createFolder(fullPath);
 	}
 
 	return fullPath;
 }
 
-/**
- * Save events to jsonl and open the events file in the workspace
- */
-async function saveAndOpenEvents(
-	app: App,
-	file: TFile,
-	events: SignedEvent[]
-): Promise<void> {
+async function saveAndOpenEvents(app: App, file: TFile, events: SignedEvent[]): Promise<void> {
 	const eventsPath = getEventsFilePath(file);
 	await saveEvents(file, events, app);
 
 	const eventsFile = app.vault.getAbstractFileByPath(eventsPath);
-	if (eventsFile && eventsFile instanceof TFile) {
+	if (eventsFile instanceof TFile) {
 		try {
 			const leaf = app.workspace.getMostRecentLeaf();
-			if (leaf && leaf.view) {
-				await leaf.openFile(eventsFile, { active: true });
-			} else {
-				const newLeaf = app.workspace.getLeaf(true);
-				await newLeaf.openFile(eventsFile, { active: true });
-			}
-		} catch (openError: any) {
+			if (leaf?.view) await leaf.openFile(eventsFile, { active: true });
+			else await app.workspace.getLeaf(true).openFile(eventsFile, { active: true });
+		} catch (openError: unknown) {
 			logError("Error opening events file", openError);
 		}
 	}
 
 	new Notice(`Created ${events.length} event(s) and saved to ${eventsPath}`);
-	log(`Events saved to: ${eventsPath}`);
 }
 
-/**
- * Handle creating Nostr events from current file
- */
 export async function handleCreateEvents(
 	app: App,
 	file: TFile,
@@ -101,128 +96,89 @@ export async function handleCreateEvents(
 
 	try {
 		const content = await app.vault.read(file);
-		let metadata = await readMetadata(file, app);
+		const { metadata: initialMetadata, template } = await readDocumentMetadata(app, file, content, settings);
+		let metadata = initialMetadata;
 
-		const eventKind = determineEventKind(
-			file,
-			content,
-			settings.defaultEventKind,
-			metadata?.kind
-		);
-
-		await ensureNostrNotesFolder(app, eventKind);
+		await ensureNostrNotesFolder(app, template);
 
 		if (!metadata) {
-			metadata = createDefaultMetadata(eventKind);
-			await writeMetadata(file, metadata, app);
-			metadata = await readMetadata(file, app) || metadata;
+			metadata = createDefaultMetadata(template);
+			await writeMetadata(file, metadata, app, template);
+			metadata = (await readMetadata(file, app, template)) ?? metadata;
 		}
 
-		if (eventKind === 30040 && isAsciiDocDocument(content)) {
+		if (template.structured && isAsciiDocDocument(content)) {
 			const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
 			metadata = mergeWithHeaderTitle(metadata, headerTitle);
 		}
 
-		new MetadataReminderModal(app, eventKind, async () => {
+		new MetadataReminderModal(app, template, metadata, async () => {
 			try {
-				log("Metadata reminder modal confirmed, starting event creation");
 				const updatedContent = await app.vault.read(file);
-				let updatedMetadata: EventMetadata = await readMetadata(file, app) || metadata || createDefaultMetadata(eventKind);
+				let updatedMetadata: TemplateMetadata =
+					(await readMetadata(file, app, template)) ??
+					metadata ??
+					createDefaultMetadata(template);
 
-				if (!updatedMetadata) {
-					updatedMetadata = createDefaultMetadata(eventKind);
-				}
-
-				if (eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
+				if (template.structured && isAsciiDocDocument(updatedContent)) {
 					const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
 					updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
 				}
 
-				const validation = validateMetadata(updatedMetadata, eventKind);
+				const resolvedTemplate = resolveTemplate(updatedMetadata, settings);
+				const validation = validateMetadata(updatedMetadata, resolvedTemplate);
 				if (!validation.valid) {
 					new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
 					return;
 				}
 
-				if (isAsciiDocFile(file) && eventKind === 30040 && isAsciiDocDocument(updatedContent)) {
+				if (isAsciiDocFile(file) && resolvedTemplate.structured && isAsciiDocDocument(updatedContent)) {
 					const asciiDocValidation = validateAsciiDocDocument(updatedContent);
 					if (!asciiDocValidation.valid) {
-						const errorMsg = `AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`;
-						if (asciiDocValidation.warnings.length > 0) {
-							new Notice(`${errorMsg}\n\nWarnings:\n${asciiDocValidation.warnings.join("\n")}`);
-						} else {
-							new Notice(errorMsg);
-						}
+						new Notice(`AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`);
 						return;
 					}
-					if (asciiDocValidation.warnings.length > 0) {
-						log(`AsciiDoc validation warnings: ${asciiDocValidation.warnings.join("; ")}`);
-					}
 				}
 
-				if (!privkey) {
-					new Notice(MISSING_KEY_NOTICE);
-					return;
-				}
-
-				log(`Building events for file: ${file.path}, kind: ${eventKind}`);
-				const result = await buildEvents(file, updatedContent, updatedMetadata, privkey, app);
-				log(`buildEvents returned: ${result.events.length} events, ${result.errors.length} errors`);
+				log(`Building events for file: ${file.path}, template: ${resolvedTemplate.id}`);
+				const result = await buildEvents(file, updatedContent, updatedMetadata, privkey, settings);
 
 				if (result.errors.length > 0) {
 					new Notice(`Errors: ${result.errors.join(", ")}`);
-					logError("buildEvents returned errors", result.errors);
 					return;
 				}
-
 				if (result.events.length === 0) {
 					new Notice("No events were created. Check metadata and content.");
-					logError("buildEvents returned 0 events", { file: file.path, metadata: updatedMetadata });
 					return;
 				}
 
 				for (const event of result.events) {
 					if (!verifyEventSecurity(event)) {
 						new Notice("Security error: Event contains private key. Aborting.");
-						logError("Event security check failed - event may contain private key");
 						return;
 					}
 				}
 
 				if (result.structure.length > 0) {
 					new StructurePreviewModal(app, result.structure, async () => {
-						try {
-							await saveAndOpenEvents(app, file, result.events);
-						} catch (error: any) {
-							showErrorNotice("Error saving events", error);
-							logError("Error saving events", error);
-						}
+						await saveAndOpenEvents(app, file, result.events);
 					}).open();
 				} else {
-					try {
-						await saveAndOpenEvents(app, file, result.events);
-					} catch (error: any) {
-						showErrorNotice("Error saving events", error);
-						logError("Error saving events", error);
-					}
+					await saveAndOpenEvents(app, file, result.events);
 				}
-			} catch (error: any) {
+			} catch (error: unknown) {
 				showErrorNotice("Error creating events", error);
-				logError("Error in event creation callback", error);
 			}
 		}).open();
-	} catch (error: any) {
+	} catch (error: unknown) {
 		showErrorNotice("Error creating events", error);
-		logError("Error creating events", error);
 	}
 }
 
-/**
- * Handle previewing document structure
- */
 export async function handlePreviewStructure(
 	app: App,
-	file: TFile
+	file: TFile,
+	settings: ScriptoriumSettings
 ): Promise<void> {
 	try {
 		const content = await app.vault.read(file);
@@ -231,25 +187,34 @@ export async function handlePreviewStructure(
 			return;
 		}
 
-		let metadata = await readMetadata(file, app);
-		if (!metadata || metadata.kind !== 30040) {
-			metadata = createDefaultMetadata(30040);
+		let { metadata, template } = await readDocumentMetadata(app, file, content, settings);
+
+		if (!metadata || !template.structured) {
+			const indexTemplate = settings.kindTemplates.find((t) => t.id === "kind-30040-default");
+			if (!indexTemplate) {
+				new Notice("No structured template found");
+				return;
+			}
+			template = indexTemplate;
+			metadata = metadata ?? createDefaultMetadata(indexTemplate);
+			metadata = (await readMetadata(file, app, template)) ?? metadata;
 		}
 
 		const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
 		metadata = mergeWithHeaderTitle(metadata, headerTitle);
 
-		const structure = parseAsciiDocStructure(content, metadata as any);
+		const contentTemplateId = template.contentTemplateId || "kind-30041-default";
+		const contentTemplate = getTemplateById(contentTemplateId, settings);
+		const indexKind = template.kind;
+		const contentKind = contentTemplate?.kind ?? 30041;
+
+		const structure = parseAsciiDocStructure(content, metadata, indexKind, contentKind);
 		new StructurePreviewModal(app, structure, () => {}).open();
-	} catch (error: any) {
+	} catch (error: unknown) {
 		showErrorNotice("Error previewing structure", error);
-		logError("Error previewing structure", error);
 	}
 }
 
-/**
- * Handle publishing events to relays
- */
 export async function handlePublishEvents(
 	app: App,
 	file: TFile,
@@ -261,8 +226,7 @@ export async function handlePublishEvents(
 		return;
 	}
 
-	const exists = await eventsFileExists(file, app);
-	if (!exists) {
+	if (!(await eventsFileExists(file, app))) {
 		new Notice("No events file found. Please create events first.");
 		return;
 	}
@@ -281,73 +245,60 @@ export async function handlePublishEvents(
 		}
 
 		new Notice(`Publishing ${events.length} event(s) to ${writeRelays.length} relay(s)...`);
-
 		const results = await publishEventsWithRetry(writeRelays, events, privkey);
 
 		let successCount = 0;
 		let failureCount = 0;
 		results.forEach((relayResults) => {
 			relayResults.forEach((result) => {
-				if (result.success) {
-					successCount++;
-				} else {
-					failureCount++;
-				}
+				if (result.success) successCount++;
+				else failureCount++;
 			});
 		});
 
-		if (failureCount === 0) {
-			new Notice(`Successfully published all ${successCount} event(s)`);
-		} else {
-			new Notice(`Published ${successCount} event(s), ${failureCount} failed`);
-		}
-	} catch (error: any) {
+		new Notice(
+			failureCount === 0
+				? `Successfully published all ${successCount} event(s)`
+				: `Published ${successCount} event(s), ${failureCount} failed`
+		);
+	} catch (error: unknown) {
 		showErrorNotice("Error publishing events", error);
-		logError("Error publishing events", error);
 	}
 }
 
-/**
- * Handle deleting saved events for the current file
- */
 export async function handleDeleteEvents(app: App, file: TFile): Promise<void> {
-	const exists = await eventsFileExists(file, app);
-	if (!exists) {
+	if (!(await eventsFileExists(file, app))) {
 		new Notice("No events file found for this document.");
 		return;
 	}
-
 	try {
 		await deleteEvents(file, app);
 		new Notice(`Deleted events file for ${file.name}`);
-	} catch (error: any) {
+	} catch (error: unknown) {
 		showErrorNotice("Error deleting events", error);
-		logError("Error deleting events", error);
 	}
 }
 
-/**
- * Handle editing metadata
- */
 export async function handleEditMetadata(
 	app: App,
 	file: TFile,
-	defaultEventKind: EventKind
+	settings: ScriptoriumSettings
 ): Promise<void> {
 	try {
-		let metadata = await readMetadata(file, app);
+		const content = await app.vault.read(file);
+		const { metadata: initialMetadata, template } = await readDocumentMetadata(app, file, content, settings);
+		let metadata = initialMetadata;
+
 		if (!metadata) {
-			const content = await app.vault.read(file);
-			const eventKind = determineEventKind(file, content, defaultEventKind);
-			metadata = createDefaultMetadata(eventKind);
+			metadata = createDefaultMetadata(template);
 		}
 
-		new MetadataModal(app, metadata, async (updatedMetadata) => {
-			await writeMetadata(file, updatedMetadata, app);
+		new MetadataModal(app, metadata, template, async (updatedMetadata) => {
+			const resolved = resolveTemplate(updatedMetadata, settings);
+			await writeMetadata(file, updatedMetadata, app, resolved);
 			new Notice("Metadata saved");
 		}).open();
-	} catch (error: any) {
+	} catch (error: unknown) {
 		showErrorNotice("Error editing metadata", error);
-		logError("Error editing metadata", error);
 	}
 }

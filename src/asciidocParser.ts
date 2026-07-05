@@ -1,4 +1,4 @@
-import { Kind30040Metadata, StructureNode } from "./types";
+import { TemplateMetadata, StructureNode } from "./types";
 import { normalizeDTag } from "./nostr/eventBuilder";
 
 /**
@@ -7,13 +7,13 @@ import { normalizeDTag } from "./nostr/eventBuilder";
 export function parseDocumentHeader(content: string): { title: string; remaining: string } | null {
 	const lines = content.split("\n");
 	const firstLine = lines[0]?.trim();
-	
+
 	if (firstLine && firstLine.startsWith("=") && !firstLine.startsWith("==")) {
 		const title = firstLine.slice(1).trim();
 		const remaining = lines.slice(1).join("\n");
 		return { title, remaining };
 	}
-	
+
 	return null;
 }
 
@@ -27,27 +27,21 @@ export function isAsciiDocDocument(content: string): boolean {
 
 /**
  * Parse AsciiDoc line to extract header level and title
- * Exported for use in validator
  */
 export function parseHeaderLine(line: string): { level: number; title: string } | null {
 	const trimmed = line.trim();
-	if (!trimmed.startsWith("=")) {
-		return null;
-	}
-	
+	if (!trimmed.startsWith("=")) return null;
+
 	let level = 0;
 	let i = 0;
 	while (i < trimmed.length && trimmed[i] === "=" && level < 6) {
 		level++;
 		i++;
 	}
-	
-	if (level === 0 || level > 6) {
-		return null;
-	}
-	
-	const title = trimmed.slice(i).trim();
-	return { level, title };
+
+	if (level === 0 || level > 6) return null;
+
+	return { level, title: trimmed.slice(i).trim() };
 }
 
 /**
@@ -55,25 +49,24 @@ export function parseHeaderLine(line: string): { level: number; title: string } 
  */
 export function parseAsciiDocStructure(
 	content: string,
-	rootMetadata?: Kind30040Metadata
+	rootMetadata?: TemplateMetadata,
+	indexKind = 30040,
+	contentKind = 30041
 ): StructureNode[] {
 	const header = parseDocumentHeader(content);
-	if (!header) {
-		return [];
-	}
+	if (!header) return [];
 
 	const rootTitle = rootMetadata?.title || header.title;
 	const rootNode: StructureNode = {
 		level: 0,
-		title: rootTitle,
-		dTag: normalizeDTag(rootTitle),
-		kind: 30040,
+		title: String(rootTitle),
+		dTag: normalizeDTag(String(rootTitle)),
+		kind: indexKind,
 		children: [],
 		metadata: rootMetadata,
 	};
 
 	const lines = header.remaining.split("\n");
-	const nodes: StructureNode[] = [rootNode];
 	const stack: StructureNode[] = [rootNode];
 	let currentContent: string[] = [];
 
@@ -83,32 +76,26 @@ export function parseAsciiDocStructure(
 
 		if (headerInfo) {
 			if (currentContent.length > 0 && stack.length > 0) {
-				const currentNode = stack[stack.length - 1];
-				currentNode.content = currentContent.join("\n").trim();
+				stack[stack.length - 1].content = currentContent.join("\n").trim();
 				currentContent = [];
 			}
 
 			const { level, title } = headerInfo;
-			const shouldBe30041 = level === 6;
-			
 			while (stack.length > 1 && stack[stack.length - 1].level >= level) {
 				stack.pop();
 			}
 
 			const parent = stack[stack.length - 1];
-			const dTag = normalizeDTag(title);
-
 			const newNode: StructureNode = {
 				level,
 				title,
-				dTag,
-				kind: shouldBe30041 ? 30041 : 30040,
+				dTag: normalizeDTag(title),
+				kind: level === 6 ? contentKind : indexKind,
 				children: [],
 				content: "",
 			};
 
 			parent.children.push(newNode);
-			nodes.push(newNode);
 			stack.push(newNode);
 		} else {
 			currentContent.push(line);
@@ -116,25 +103,20 @@ export function parseAsciiDocStructure(
 	}
 
 	if (currentContent.length > 0 && stack.length > 0) {
-		const currentNode = stack[stack.length - 1];
-		currentNode.content = currentContent.join("\n").trim();
+		stack[stack.length - 1].content = currentContent.join("\n").trim();
 	}
 
-	markLowestLevelAs30041(rootNode);
-
+	markLowestLevelAsContent(rootNode, indexKind, contentKind);
 	return [rootNode];
 }
 
-/**
- * Recursively mark the lowest level nodes in each branch as 30041
- */
-function markLowestLevelAs30041(node: StructureNode): void {
-	node.children.forEach((child) => markLowestLevelAs30041(child));
+function markLowestLevelAsContent(node: StructureNode, indexKind: number, contentKind: number): void {
+	node.children.forEach((child) => markLowestLevelAsContent(child, indexKind, contentKind));
 
 	if (node.children.length === 0) {
-		node.kind = 30041;
+		node.kind = contentKind;
 	} else {
-		node.kind = 30040;
+		node.kind = indexKind;
 		node.content = "";
 	}
 }

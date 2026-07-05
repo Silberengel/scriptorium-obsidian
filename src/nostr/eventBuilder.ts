@@ -1,7 +1,6 @@
 import { finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
-import { EventKind, EventMetadata, SignedEvent, Kind30041Metadata, Kind30040Metadata } from "../types";
+import { SignedEvent } from "../types";
 import { sanitizeString } from "../utils/security";
-import { addNKBIP08TagsTo30040, addNKBIP08TagsTo30041 } from "./nkbip08Tags";
 
 /**
  * Normalize secret key from bech32 nsec or hex format to hex
@@ -59,186 +58,6 @@ export function getNpubFromPrivkey(privkey: string): string {
 }
 
 /**
- * Build tags array from metadata
- * Automatically adds published_at tag with current UNIX timestamp for all replaceable event kinds
- */
-export function buildTagsFromMetadata(
-	metadata: EventMetadata,
-	pubkey: string,
-	childEvents?: Array<{ kind: number; dTag: string; eventId?: string }>
-): string[][] {
-	const tags: string[][] = [];
-	
-	// Helper function to normalize topics (can be string or array)
-	const normalizeTopics = (topics: string | string[] | undefined): string[] => {
-		if (!topics) return [];
-		if (Array.isArray(topics)) return topics;
-		if (typeof topics === "string") {
-			// Split by comma and trim each topic
-			return topics.split(",").map(t => t.trim()).filter(t => t.length > 0);
-		}
-		return [];
-	};
-	
-	// Helper function to add published_at tag for replaceable event kinds
-	const addPublishedAtIfReplaceable = () => {
-		// Replaceable event kinds: 30023, 30040, 30041, 30817, 30818 (0-9999 range)
-		// Non-replaceable: 1, 11
-		const replaceableKinds = [30023, 30040, 30041, 30817, 30818];
-		if (replaceableKinds.includes(metadata.kind)) {
-			const publishedAt = Math.floor(Date.now() / 1000).toString();
-			tags.push(["published_at", publishedAt]);
-		}
-	};
-
-	switch (metadata.kind) {
-		case 1:
-			// No special tags required (title is optional)
-			if (metadata.title) {
-				tags.push(["title", metadata.title]);
-			}
-			// Topics available for all events
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			break;
-
-		case 11:
-			// Thread OP
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 11");
-			}
-			if (metadata.title) tags.push(["title", metadata.title]);
-			// Topics available for all events
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			break;
-
-		case 30023:
-			// Long-form article (replaceable)
-			addPublishedAtIfReplaceable();
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 30023");
-			}
-			tags.push(["d", normalizeDTag(metadata.title)]);
-			if (metadata.title) tags.push(["title", metadata.title]);
-			if (metadata.image) tags.push(["image", metadata.image]);
-			if (metadata.summary) tags.push(["summary", metadata.summary]);
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			break;
-
-		case 30040: {
-			// Publication index (replaceable)
-			addPublishedAtIfReplaceable();
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 30040");
-			}
-			tags.push(["d", normalizeDTag(metadata.title)]);
-			if (metadata.title) tags.push(["title", metadata.title]);
-			if (metadata.author) tags.push(["author", metadata.author]);
-			if (metadata.type) tags.push(["type", metadata.type]);
-			if (metadata.version) tags.push(["version", metadata.version]);
-			if (metadata.published_on) tags.push(["published_on", metadata.published_on]);
-			if (metadata.published_by) tags.push(["published_by", metadata.published_by]);
-			if (metadata.summary) tags.push(["summary", metadata.summary]);
-			if (metadata.source) tags.push(["source", metadata.source]);
-			if (metadata.image) tags.push(["image", metadata.image]);
-			if (metadata.auto_update) {
-				tags.push(["auto-update", metadata.auto_update]);
-			}
-			if (metadata.derivative_author) {
-				tags.push(["p", metadata.derivative_author]);
-			}
-			if (metadata.derivative_event) {
-				const eTag = ["E", metadata.derivative_event];
-				if (metadata.derivative_relay) eTag.push(metadata.derivative_relay);
-				if (metadata.derivative_pubkey) eTag.push(metadata.derivative_pubkey);
-				tags.push(eTag);
-			}
-			// Topics available for all events
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			// NKBIP-08 tags
-			// Note: For structured documents, NKBIP-08 tags are added in eventManager.ts
-			// with proper book/chapter identification. For simple 30040 events, treat as book.
-			const meta30040 = metadata as Kind30040Metadata;
-			addNKBIP08TagsTo30040(tags, meta30040, true, false, undefined, meta30040); // Simple 30040 is a book, use itself as root
-			// Additional tags - ensure all values are strings
-			if (metadata.additional_tags) {
-				metadata.additional_tags.forEach((tag) => {
-					if (Array.isArray(tag) && tag.length > 0) {
-						const normalizedTag = tag.map(val => String(val ?? ""));
-						tags.push(normalizedTag);
-					}
-				});
-			}
-			// a tags for child events
-			// Format: ["a", "kind:pubkey:d-tag", "relay-url", "event-id"]
-			// If no relay URL, use empty string as placeholder before event ID
-			if (childEvents) {
-				childEvents.forEach((child) => {
-					const aTag: string[] = ["a", `${child.kind}:${pubkey}:${child.dTag}`];
-					if (child.eventId) {
-						// Add empty relay URL placeholder, then event ID
-						aTag.push("", String(child.eventId));
-					}
-					tags.push(aTag);
-				});
-			}
-			break;
-		}
-
-		case 30041: {
-			// Publication content (replaceable)
-			addPublishedAtIfReplaceable();
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 30041");
-			}
-			tags.push(["d", normalizeDTag(metadata.title)]);
-			if (metadata.title) tags.push(["title", metadata.title]);
-			
-			const meta30041 = metadata as Kind30041Metadata;
-			// Stand-alone 30041 can have same tags as 30023
-			if (meta30041.image) tags.push(["image", meta30041.image]);
-			if (meta30041.summary) tags.push(["summary", meta30041.summary]);
-			normalizeTopics(meta30041.topics).forEach((topic) => tags.push(["t", topic]));
-			
-			// NKBIP-08 tags (only for nested 30041 under 30040)
-			addNKBIP08TagsTo30041(tags, meta30041);
-			break;
-		}
-
-		case 30817: {
-			// Wiki page (Markdown) (replaceable)
-			addPublishedAtIfReplaceable();
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 30817");
-			}
-			tags.push(["d", normalizeDTag(metadata.title)]);
-			if (metadata.title) tags.push(["title", metadata.title]);
-			if (metadata.summary) tags.push(["summary", metadata.summary]);
-			const meta30817 = metadata as any;
-			if (meta30817.image) tags.push(["image", meta30817.image]);
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			break;
-		}
-
-		case 30818: {
-			// Wiki page (AsciiDoc) (replaceable)
-			addPublishedAtIfReplaceable();
-			if (!metadata.title) {
-				throw new Error("Title is mandatory for kind 30818");
-			}
-			tags.push(["d", normalizeDTag(metadata.title)]);
-			if (metadata.title) tags.push(["title", metadata.title]);
-			if (metadata.summary) tags.push(["summary", metadata.summary]);
-			const meta30818 = metadata as any;
-			if (meta30818.image) tags.push(["image", meta30818.image]);
-			normalizeTopics(metadata.topics).forEach((topic) => tags.push(["t", topic]));
-			break;
-		}
-	}
-
-	return tags;
-}
-
-/**
  * Normalize d-tag per NIP-54 rules
  */
 export function normalizeDTag(title: string): string {
@@ -266,7 +85,7 @@ export function normalizeDTag(title: string): string {
  * Create and sign a Nostr event
  */
 export function createSignedEvent(
-	kind: EventKind,
+	kind: number,
 	content: string,
 	tags: string[][],
 	privkey: string,
@@ -298,7 +117,7 @@ export function createSignedEvent(
 		id: signedEvent.id,
 		pubkey: signedEvent.pubkey,
 		created_at: signedEvent.created_at,
-		kind: signedEvent.kind as EventKind,
+		kind: signedEvent.kind,
 		tags: signedEvent.tags,
 		content: signedEvent.content,
 		sig: signedEvent.sig,

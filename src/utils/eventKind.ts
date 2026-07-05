@@ -1,48 +1,43 @@
 import { TFile } from "obsidian";
-import { EventKind } from "../types";
-import { isAsciiDocFile, isMarkdownFile } from "./fileExtensions";
+import { KindTemplate, ScriptoriumSettings, TemplateMetadata } from "../types";
+import { isAsciiDocFile } from "./fileExtensions";
 import { isAsciiDocDocument } from "../asciidocParser";
+import { resolveTemplate, getTemplateById } from "../templateRegistry";
 
-/**
- * Determine event kind from file extension and content
- */
-export function determineEventKind(
+export function determineTemplate(
 	file: TFile,
 	content: string,
-	defaultKind: EventKind,
-	metadataKind?: EventKind
-): EventKind {
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata> | null
+): KindTemplate {
+	if (metadata) {
+		try {
+			return resolveTemplate(metadata, settings);
+		} catch {
+			// fall through
+		}
+	}
+
+	if (metadata?.kind !== undefined) {
+		const matches = settings.kindTemplates.filter((t) => t.kind === metadata.kind);
+		if (matches.length === 1) return matches[0];
+	}
+
 	if (isAsciiDocFile(file)) {
-		// If metadata specifies a kind, use it (allows standalone 30041 or 30818)
-		if (metadataKind) {
-			return metadataKind;
-		}
-		// Otherwise, determine from content structure
 		if (isAsciiDocDocument(content)) {
-			return 30040;
+			const structured = settings.kindTemplates.find((t) => t.structured && t.markup === "asciidoc");
+			if (structured) return structured;
 		}
-		return 30818;
+		const wiki = getTemplateById("kind-30818-default", settings);
+		if (wiki) return wiki;
 	}
-	
-	if (isMarkdownFile(file)) {
-		return metadataKind || defaultKind;
-	}
-	
-	return defaultKind;
+
+	const defaultTemplate = getTemplateById(settings.defaultTemplateId, settings);
+	if (defaultTemplate) return defaultTemplate;
+
+	return settings.kindTemplates[0];
 }
 
-/**
- * Get folder name for an event kind
- */
-export function getFolderNameForKind(kind: EventKind): string {
-	const folderMap: Record<EventKind, string> = {
-		1: "kind-1-notes",
-		11: "kind-11-threads",
-		30023: "kind-30023-articles",
-		30040: "kind-30040-publications",
-		30041: "kind-30041-chapters",
-		30817: "kind-30817-wiki-md",
-		30818: "kind-30818-wiki-adoc",
-	};
-	return folderMap[kind];
+export function getFolderNameForTemplate(template: KindTemplate): string {
+	return template.folderName || `kind-${template.kind}`;
 }

@@ -1,4 +1,4 @@
-import { Kind30040Metadata, Kind30041Metadata } from "../types";
+import { TemplateMetadata } from "../types";
 
 /**
  * NKBIP-08 tag names
@@ -97,8 +97,8 @@ export interface NKBIP08_30041Tags {
  * @returns NKBIP-08 tags for the 30041 event
  */
 export function buildNKBIP08TagsFor30041(
-	parentMetadata: Kind30040Metadata,
-	rootMetadata: Kind30040Metadata | undefined,
+	parentMetadata: TemplateMetadata,
+	rootMetadata: TemplateMetadata | undefined,
 	bookTitle: string,
 	chapterTitle: string,
 	sectionTitle: string,
@@ -128,9 +128,9 @@ export function buildNKBIP08TagsFor30041(
  * @returns Merged NKBIP-08 tags (normalized)
  */
 export function mergeNKBIP08TagsFor30040(
-	parentMetadata: Kind30040Metadata | undefined,
-	childMetadata: Kind30040Metadata,
-	rootMetadata?: Kind30040Metadata
+	parentMetadata: TemplateMetadata | undefined,
+	childMetadata: TemplateMetadata,
+	rootMetadata?: TemplateMetadata
 ): NKBIP08_30040Tags {
 	// Collection ID is inherited from root (if present), not from parent
 	const collectionId = rootMetadata?.collection_id || childMetadata?.collection_id;
@@ -151,9 +151,9 @@ export function mergeNKBIP08TagsFor30040(
  * @returns Updated metadata with NKBIP-08 tags
  */
 export function applyNKBIP08TagsTo30041(
-	metadata: Kind30041Metadata,
+	metadata: TemplateMetadata,
 	nkbip08Tags: NKBIP08_30041Tags
-): Kind30041Metadata {
+): TemplateMetadata {
 	return {
 		...metadata,
 		collection_id: nkbip08Tags.collection_id,
@@ -173,9 +173,9 @@ export function applyNKBIP08TagsTo30041(
  * @returns Updated metadata with NKBIP-08 tags
  */
 export function applyNKBIP08TagsTo30040(
-	metadata: Kind30040Metadata,
+	metadata: TemplateMetadata,
 	nkbip08Tags: NKBIP08_30040Tags
-): Kind30040Metadata {
+): TemplateMetadata {
 	return {
 		...metadata,
 		collection_id: nkbip08Tags.collection_id,
@@ -200,11 +200,11 @@ export function applyNKBIP08TagsTo30040(
  */
 export function addNKBIP08TagsTo30040(
 	tags: string[][],
-	metadata: Kind30040Metadata,
+	metadata: TemplateMetadata,
 	isBook: boolean = false,
 	isChapter: boolean = false,
 	bookTitle?: string,
-	rootMetadata?: Kind30040Metadata
+	rootMetadata?: TemplateMetadata
 ): void {
 	// C tag (collection) - optional, inherited from root if present
 	if (rootMetadata?.collection_id) {
@@ -269,7 +269,7 @@ export function addNKBIP08TagsTo30040(
  */
 export function addNKBIP08TagsTo30041(
 	tags: string[][],
-	metadata: Kind30041Metadata
+	metadata: TemplateMetadata
 ): void {
 	// Only add NKBIP-08 tags if they exist (indicating this is a nested 30041)
 	// All tag values are already normalized when stored in metadata

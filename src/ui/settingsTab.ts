@@ -1,6 +1,5 @@
 import { App, PluginSettingTab, Setting, Notice, TextComponent } from "obsidian";
 import ScriptoriumPlugin from "../main";
-import { EventKind } from "../types";
 import {
 	fetchRelayList,
 	addTheCitadelIfMissing,
@@ -12,6 +11,19 @@ import {
 } from "../relayManager";
 import { getPubkeyFromPrivkey, getNpubFromPrivkey } from "../nostr/eventBuilder";
 import { fetchUserProfile } from "../nostr/profileFetcher";
+import {
+	getSelectableTemplates,
+	resetTemplateToDefault,
+	resetAllTemplatesToDefaults,
+	isDeletableTemplate,
+	createCustomTemplateScaffold,
+} from "../templateRegistry";
+import { getNip01KindClass } from "../utils/nip01Kind";
+import {
+	KindTemplateEditorModal,
+	deleteKindTemplate,
+	updateKindTemplatesInSettings,
+} from "./kindTemplateEditorModal";
 
 /**
  * Settings tab for the plugin
@@ -112,23 +124,22 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		}
 
 		new Setting(containerEl)
-			.setName("Default Event Kind")
-			.setDesc("Default event kind for new documents")
+			.setName("Default Template")
+			.setDesc("Default template for new documents")
 			.addDropdown((dropdown) => {
+				const templates = getSelectableTemplates(this.plugin.settings);
+				for (const t of templates) {
+					dropdown.addOption(t.id, `${t.name} (kind ${t.kind})`);
+				}
 				dropdown
-					.addOption("1", "1 - Normal Note")
-					.addOption("11", "11 - Discussion Thread OP")
-					.addOption("30023", "30023 - Long-form Article")
-					.addOption("30040", "30040 - Publication Index")
-					.addOption("30041", "30041 - Publication Content")
-					.addOption("30817", "30817 - Wiki Page (Markdown)")
-					.addOption("30818", "30818 - Wiki Page (AsciiDoc)")
-					.setValue(String(this.plugin.settings.defaultEventKind))
+					.setValue(this.plugin.settings.defaultTemplateId)
 					.onChange(async (value) => {
-						this.plugin.settings.defaultEventKind = parseInt(value) as EventKind;
+						this.plugin.settings.defaultTemplateId = value;
 						await this.plugin.saveSettings();
 					});
 			});
+
+		this.renderKindTemplatesSection(containerEl);
 
 		new Setting(containerEl)
 			.setName("Suggest TheCitadel Relay")
@@ -265,6 +276,111 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							}
 						}
 					});
+			});
+	}
+
+	private renderKindTemplatesSection(containerEl: HTMLElement) {
+		containerEl.createEl("h3", { text: "Event Kind Templates" });
+		containerEl.createEl("p", {
+			text: "All event kinds are defined as JSON templates. Default templates use ids ending in -default.",
+		});
+
+		const table = containerEl.createEl("table");
+		table.style.width = "100%";
+		table.style.marginBottom = "1em";
+		const headerRow = table.createEl("tr");
+		["ID", "Name", "Type", "Kind", "Markup", "NIP-01", "Structured", ""].forEach((h) => {
+			const th = headerRow.createEl("th");
+			th.textContent = h;
+			th.style.textAlign = "left";
+			th.style.padding = "4px 8px";
+		});
+
+		for (const template of this.plugin.settings.kindTemplates) {
+			const row = table.createEl("tr");
+			const cells = [
+				template.id,
+				template.name,
+				template.type,
+				String(template.kind),
+				template.markup,
+				getNip01KindClass(template.kind),
+				template.structured ? "yes" : "no",
+			];
+			cells.forEach((text) => {
+				const td = row.createEl("td");
+				td.textContent = text;
+				td.style.padding = "4px 8px";
+			});
+
+			const actionsTd = row.createEl("td");
+			actionsTd.style.padding = "4px 8px";
+
+			actionsTd.createEl("button", { text: "Edit" }).addEventListener("click", () => {
+				new KindTemplateEditorModal(
+					this.app,
+					JSON.parse(JSON.stringify(template)),
+					this.plugin.settings.kindTemplates,
+					async (updated) => {
+						updateKindTemplatesInSettings(this.plugin.settings, updated, template.id);
+						await this.plugin.saveSettings();
+						await this.display();
+						new Notice("Template saved");
+					}
+				).open();
+			});
+
+			if (template.type === "default") {
+				actionsTd.createEl("button", { text: "Reset" }).addEventListener("click", async () => {
+					resetTemplateToDefault(template.id, this.plugin.settings);
+					await this.plugin.saveSettings();
+					await this.display();
+					new Notice(`Reset ${template.id} to default`);
+				});
+			}
+
+			if (isDeletableTemplate(template)) {
+				const delBtn = actionsTd.createEl("button", { text: "Delete" });
+				delBtn.style.marginLeft = "4px";
+				delBtn.addEventListener("click", async () => {
+					if (deleteKindTemplate(this.plugin.settings, template.id)) {
+						await this.plugin.saveSettings();
+						await this.display();
+						new Notice(`Deleted ${template.id}`);
+					}
+				});
+			}
+		}
+
+		new Setting(containerEl)
+			.setName("Add Template")
+			.setDesc("Create a new custom template (JSON editor)")
+			.addButton((button) => {
+				button.setButtonText("Add").setCta().onClick(() => {
+					new KindTemplateEditorModal(
+						this.app,
+						createCustomTemplateScaffold(),
+						this.plugin.settings.kindTemplates,
+						async (updated) => {
+							updateKindTemplatesInSettings(this.plugin.settings, updated);
+							await this.plugin.saveSettings();
+							await this.display();
+							new Notice("Template added");
+						}
+					).open();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName("Reset All Defaults")
+			.setDesc("Restore all default templates from shipped presets; custom templates are kept")
+			.addButton((button) => {
+				button.setButtonText("Reset All").setWarning().onClick(async () => {
+					resetAllTemplatesToDefaults(this.plugin.settings);
+					await this.plugin.saveSettings();
+					await this.display();
+					new Notice("Default templates reset");
+				});
 			});
 	}
 }

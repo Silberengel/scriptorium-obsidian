@@ -265,18 +265,55 @@ For structured AsciiDoc documents (kind 30040), NKBIP-08 tags are automatically 
 
 All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers only).
 
-## Event Kinds
+## Event Kind Templates
+
+All event kinds are defined as **JSON templates** in plugin settings (Settings → Event Kind Templates). Seven default templates ship with the plugin; you can edit them or add custom presets.
+
+- **Default templates** use ids ending in `-default` (e.g. `kind-30023-default`, `kind-30040-default`) and `type: "default"`. They can be reset to shipped JSON but not deleted.
+- **Custom templates** use `type: "custom"` and can be deleted.
+- Multiple templates may share the same Nostr **kind** (e.g. a magazine preset and blog preset both using kind `30023`). Documents store `templateId` in metadata to disambiguate.
+- Relay behavior (regular / replaceable / addressable per NIP-01) is derived from the kind number, not from template config.
+- `published_at` and `d` tags are added automatically based on NIP-01 kind class.
+
+Reference: [`src/defaultKindTemplates.json`](src/defaultKindTemplates.json) and [`src/defaultKindTemplates.ts`](src/defaultKindTemplates.ts).
+
+### Editing templates
+
+1. Open **Settings → Scriptorium Nostr Settings → Event Kind Templates**
+2. Click **Edit** on a template to open the JSON editor
+3. Click **Validate** before **Save**
+4. Use **Reset** (per default template) or **Reset All Defaults** to restore shipped presets
+
+### Example custom template
+
+```json
+{
+  "id": "magazine-30023",
+  "type": "custom",
+  "kind": 30023,
+  "name": "Magazine Article",
+  "markup": "markdown",
+  "structured": false,
+  "folderName": "magazine-articles",
+  "fields": [
+    { "key": "title", "tagType": "title", "description": "Article title", "required": true },
+    { "key": "issue", "tagType": "text", "description": "Magazine issue number", "required": false }
+  ]
+}
+```
+
+## Event Kinds (default templates)
 
 
-| Kind  | Format   | Description          | Title Required |
-| ----- | -------- | -------------------- | -------------- |
-| 1     | Markdown | Normal note          | No             |
-| 11    | Markdown | Discussion thread OP | Yes            |
-| 30023 | Markdown | Long-form article    | Yes            |
-| 30040 | AsciiDoc | Publication index    | Yes            |
-| 30041 | AsciiDoc | Publication content  | Yes            |
-| 30817 | Markdown | Wiki page            | Yes            |
-| 30818 | AsciiDoc | Wiki page            | Yes            |
+| Kind  | Default template id   | Format   | Description          | Title Required |
+| ----- | --------------------- | -------- | -------------------- | -------------- |
+| 1     | kind-1-default        | Markdown | Normal note          | No             |
+| 11    | kind-11-default       | Markdown | Discussion thread OP | Yes            |
+| 30023 | kind-30023-default    | Markdown | Long-form article    | Yes            |
+| 30040 | kind-30040-default    | AsciiDoc | Publication index    | Yes            |
+| 30041 | kind-30041-default    | AsciiDoc | Publication content  | Yes            |
+| 30817 | kind-30817-default    | Markdown | Wiki page            | Yes            |
+| 30818 | kind-30818-default    | AsciiDoc | Wiki page            | Yes            |
 
 
 ### Stand-alone vs Nested 30041
@@ -292,11 +329,12 @@ All tag values are normalized per NKBIP-08 spec (lowercase, hyphens, numbers onl
 
 All predefined metadata fields are shown in frontmatter/attributes with placeholder descriptions. Remove or update placeholders you don't need. Placeholder values are automatically skipped when creating events.
 
-**Important**: The `published_at` tag is automatically generated with the current UNIX timestamp during event creation for all replaceable event kinds (all event kinds supported by this plugin). Do not include `published_at` in your metadata - it will be automatically added and any existing `published_at` values in metadata will be ignored.
+**Important**: The `published_at` tag is automatically generated for NIP-01 replaceable and addressable kinds during event creation. Do not include `published_at` in metadata. Documents also store `templateId` alongside `kind` in frontmatter or AsciiDoc attributes.
 
 ### Common Fields
 
-- `kind` - Event kind (required)
+- `templateId` - Template preset id (e.g. `kind-30023-default`)
+- `kind` - Nostr event kind (required)
 - `title` - Document title (required for all except kind 1)
 - `author` - Author name
 - `summary` - Brief description
