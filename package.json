@@ -1,6 +1,6 @@
 {
 	"name": "scriptorium-obsidian",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Obsidian plugin for creating and publishing Nostr document events",
 	"main": "main.js",
 	"scripts": {
@@ -17,12 +17,15 @@
 		"@typescript-eslint/eslint-plugin": "5.29.0",
 		"@typescript-eslint/parser": "5.29.0",
 		"builtin-modules": "3.3.0",
-		"esbuild": "0.17.3",
+		"esbuild": "0.25.9",
 		"obsidian": "latest",
 		"tslib": "2.4.0",
 		"typescript": "5.3.3"
 	},
 	"dependencies": {
 		"nostr-tools": "^2.20.0"
+	},
+	"allowScripts": {
+		"esbuild@0.25.9": true
 	}
 }
