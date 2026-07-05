@@ -96,7 +96,7 @@ export class StructurePreviewModal extends Modal {
 		dTagEl.createEl("span", { text: `d-tag: `, cls: "scriptorium-label" });
 		dTagEl.createEl("code", { text: node.dTag });
 
-		if (node.kind === 30041 && node.content) {
+		if (node.content && node.children.length === 0) {
 			const contentPreview = nodeDiv.createDiv({ cls: "scriptorium-content-preview" });
 			contentPreview.style.marginTop = "0.5em";
 			contentPreview.style.fontSize = "0.85em";

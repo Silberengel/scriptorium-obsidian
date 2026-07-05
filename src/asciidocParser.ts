@@ -136,7 +136,7 @@ export function assignHierarchicalDTags(root: StructureNode): void {
 	walk(root, rootTag);
 }
 
-function markLowestLevelAsContent(node: StructureNode, indexKind: number, contentKind: number): void {
+export function markLowestLevelAsContent(node: StructureNode, indexKind: number, contentKind: number): void {
 	node.children.forEach((child) => markLowestLevelAsContent(child, indexKind, contentKind));
 
 	if (node.children.length === 0) {

@@ -1,12 +1,12 @@
 import { Plugin, TFile, Notice, Menu } from "obsidian";
-import { ScriptoriumSettings, DEFAULT_SETTINGS } from "./types";
+import { ScriptoriumSettings, DEFAULT_SETTINGS, DEFAULT_RELAY_PRESET } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { NewDocumentModal } from "./ui/newDocumentModal";
 import { writeMetadata, createDefaultMetadata } from "./metadataManager";
 import { safeConsoleError } from "./utils/security";
 import { showErrorNotice } from "./utils/errorHandling";
 import { log, logError } from "./utils/console";
-import { ensureKindTemplates, getTemplateById, getSelectableTemplates, getFileExtension } from "./templateRegistry";
+import { ensureKindTemplates, getTemplateById, getSelectableTemplates, getFileExtension, getDocumentMarkup } from "./templateRegistry";
 import {
 	getCurrentFile,
 	ensureNostrNotesFolder,
@@ -137,6 +137,9 @@ export default class ScriptoriumPlugin extends Plugin {
 		}
 
 		ensureKindTemplates(this.settings);
+		if (!this.settings.defaultRelay?.trim()) {
+			this.settings.defaultRelay = DEFAULT_RELAY_PRESET;
+		}
 		await this.saveData(this.settings);
 	}
 
@@ -179,8 +182,9 @@ export default class ScriptoriumPlugin extends Plugin {
 		new NewDocumentModal(
 			this.app,
 			templates,
+			this.settings,
 			this.settings.defaultTemplateId,
-			async (templateId: string, title: string) => {
+			async (templateId: string, title: string, sectionTemplateId?: string) => {
 				try {
 					const template = getTemplateById(templateId, this.settings);
 					if (!template) {
@@ -190,9 +194,10 @@ export default class ScriptoriumPlugin extends Plugin {
 
 					log(`Creating new document: template=${templateId}, title=${title}`);
 
+					const metadata = createDefaultMetadata(template, title, sectionTemplateId);
 					const folderPath = await ensureNostrNotesFolder(this.app, template);
 					const sanitizedTitle = this.sanitizeFilename(title);
-					const extension = getFileExtension(template);
+					const extension = getFileExtension(template, this.settings, metadata);
 					const filename = `${sanitizedTitle}.${extension}`;
 					const filePath = `${folderPath}/${filename}`;
 
@@ -201,8 +206,9 @@ export default class ScriptoriumPlugin extends Plugin {
 						return;
 					}
 
+					const documentMarkup = getDocumentMarkup(template, this.settings, metadata);
 					let content = "";
-					if (template.markup === "asciidoc") {
+					if (documentMarkup === "asciidoc") {
 						content = `= ${title}\n\n`;
 					} else if (template.kind !== 1) {
 						content = `# ${title}\n\n`;
@@ -223,9 +229,8 @@ export default class ScriptoriumPlugin extends Plugin {
 						return;
 					}
 
-					const metadata = createDefaultMetadata(template, title);
 					try {
-						await writeMetadata(file, metadata, this.app, template);
+						await writeMetadata(file, metadata, this.app, template, this.settings);
 					} catch (error: unknown) {
 						showErrorNotice("Error creating metadata", error);
 					}

@@ -13,12 +13,12 @@ import {
 	createDTagAllocator,
 } from "./nostr/eventBuilder";
 import { buildTagsFromTemplate } from "./nostr/templateEventBuilder";
-import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
+import { parseDocumentStructure, isStructuredSourceDocument } from "./structureParser";
 import { mergeWithHeaderTitle, stripMetadataFromContent } from "./metadataManager";
-import { isAsciiDocFile } from "./utils/fileExtensions";
 import {
-	getTemplateById,
 	resolveTemplate,
+	getDocumentMarkup,
+	resolveSectionTemplate,
 } from "./templateRegistry";
 
 function resolveAuthor(
@@ -64,24 +64,29 @@ export async function buildStructuredEvents(
 	const events: SignedEvent[] = [];
 	const pubkey = getPubkeyFromPrivkey(privkey);
 
-	if (!indexTemplate.contentTemplateId) {
-		return { events: [], structure: [], errors: ["Structured template missing contentTemplateId"] };
+	if (!indexTemplate.contentTemplateId && !indexTemplate.contentTemplateIds?.length) {
+		return { events: [], structure: [], errors: ["Publication template has no linked section templates"] };
 	}
 
-	const contentTemplate = getTemplateById(indexTemplate.contentTemplateId, settings);
+	const contentTemplate = resolveSectionTemplate(indexTemplate, settings, metadata);
 	if (!contentTemplate) {
-		return { events: [], structure: [], errors: [`Content template not found: ${indexTemplate.contentTemplateId}`] };
+		return { events: [], structure: [], errors: ["No section template found for this publication"] };
 	}
 
 	const leafTemplate = contentTemplate;
 
 	const indexKind = indexTemplate.kind;
 	const contentKind = leafTemplate.kind;
+	const markup = getDocumentMarkup(indexTemplate, settings, metadata);
 	const cleanContent = stripMetadataFromContent(file, content);
-	const header = parseAsciiDocStructure(cleanContent, metadata, indexKind, contentKind);
+	const header = parseDocumentStructure(cleanContent, metadata, indexKind, contentKind, markup);
 
 	if (header.length === 0) {
-		return { events: [], structure: [], errors: ["Failed to parse AsciiDoc structure"] };
+		return {
+			events: [],
+			structure: [],
+			errors: [`Failed to parse ${markup} document structure`],
+		};
 	}
 
 	const rootNode = header[0];
@@ -200,7 +205,8 @@ export async function buildEvents(
 	settings: ScriptoriumSettings
 ): Promise<EventCreationResult> {
 	const template = resolveTemplate(metadata, settings);
-	const hasStructure = isAsciiDocFile(file) && isAsciiDocDocument(content);
+	const markup = getDocumentMarkup(template, settings, metadata);
+	const hasStructure = template.structured && isStructuredSourceDocument(content, markup, file);
 
 	if (hasStructure && template.structured) {
 		const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";

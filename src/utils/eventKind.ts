@@ -1,8 +1,40 @@
 import { TFile } from "obsidian";
 import { KindTemplate, ScriptoriumSettings, TemplateMetadata } from "../types";
-import { isAsciiDocFile } from "./fileExtensions";
+import { isAsciiDocFile, isMarkdownFile } from "./fileExtensions";
 import { isAsciiDocDocument } from "../asciidocParser";
-import { resolveTemplate, getTemplateById } from "../templateRegistry";
+import { isMarkdownHierarchicalDocument } from "../markdownParser";
+import { isStructuredSourceDocument } from "../structureParser";
+import {
+	resolveTemplate,
+	getTemplateById,
+	getPublicationSectionTemplates,
+} from "../templateRegistry";
+
+function findStructuredTemplateForContent(
+	content: string,
+	file: TFile,
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata> | null
+): KindTemplate | undefined {
+	if (metadata?.templateId) {
+		const fromMeta = getTemplateById(metadata.templateId, settings);
+		if (fromMeta?.structured) {
+			for (const section of getPublicationSectionTemplates(fromMeta, settings)) {
+				const markup = section.markup ?? "asciidoc";
+				if (isStructuredSourceDocument(content, markup, file)) return fromMeta;
+			}
+		}
+	}
+
+	for (const publication of settings.kindTemplates.filter((t) => t.structured)) {
+		for (const section of getPublicationSectionTemplates(publication, settings)) {
+			const markup = section.markup ?? "asciidoc";
+			if (isStructuredSourceDocument(content, markup, file)) return publication;
+		}
+	}
+
+	return undefined;
+}
 
 export function determineTemplate(
 	file: TFile,
@@ -23,12 +55,16 @@ export function determineTemplate(
 		if (matches.length === 1) return matches[0];
 	}
 
-	if (isAsciiDocFile(file)) {
-		if (isAsciiDocDocument(content)) {
-			const structured = settings.kindTemplates.find((t) => t.structured && t.markup === "asciidoc");
-			if (structured) return structured;
-		}
+	const structured = findStructuredTemplateForContent(content, file, settings, metadata);
+	if (structured) return structured;
+
+	if (isAsciiDocFile(file) && isAsciiDocDocument(content)) {
 		const wiki = getTemplateById("kind-30818-default", settings);
+		if (wiki) return wiki;
+	}
+
+	if (isMarkdownFile(file) && !isMarkdownHierarchicalDocument(content)) {
+		const wiki = getTemplateById("kind-30817-default", settings);
 		if (wiki) return wiki;
 	}
 

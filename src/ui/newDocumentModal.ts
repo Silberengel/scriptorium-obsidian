@@ -1,21 +1,28 @@
 import { App, Modal, Setting } from "obsidian";
-import { KindTemplate } from "../types";
+import { KindTemplate, ScriptoriumSettings } from "../types";
+import { getPublicationSectionTemplates } from "../templateRegistry";
 
 export class NewDocumentModal extends Modal {
 	private templates: KindTemplate[];
+	private settings: ScriptoriumSettings;
 	private selectedTemplateId: string;
+	private selectedSectionTemplateId: string;
 	private title: string;
-	private onSubmit: (templateId: string, title: string) => void;
+	private sectionSetting: Setting | null = null;
+	private onSubmit: (templateId: string, title: string, sectionTemplateId?: string) => void;
 
 	constructor(
 		app: App,
 		templates: KindTemplate[],
+		settings: ScriptoriumSettings,
 		defaultTemplateId: string,
-		onSubmit: (templateId: string, title: string) => void
+		onSubmit: (templateId: string, title: string, sectionTemplateId?: string) => void
 	) {
 		super(app);
 		this.templates = templates;
+		this.settings = settings;
 		this.selectedTemplateId = defaultTemplateId;
+		this.selectedSectionTemplateId = "";
 		this.title = "";
 		this.onSubmit = onSubmit;
 	}
@@ -40,8 +47,13 @@ export class NewDocumentModal extends Modal {
 				}
 				dropdown.onChange((value) => {
 					this.selectedTemplateId = value;
+					this.updateSectionSetting();
 				});
 			});
+
+		this.sectionSetting = new Setting(contentEl)
+			.setName("Section kind")
+			.setDesc("Content kind and markup for leaf sections in this publication");
 
 		new Setting(contentEl)
 			.setName("Title / Filename")
@@ -53,13 +65,48 @@ export class NewDocumentModal extends Modal {
 				text.inputEl.focus();
 			});
 
+		this.updateSectionSetting();
+
 		const buttonContainer = contentEl.createDiv({ cls: "scriptorium-modal-buttons" });
 		buttonContainer.createEl("button", { text: "Create", cls: "mod-cta" }).addEventListener("click", () => {
 			if (!this.title) this.title = "Untitled";
-			this.onSubmit(this.selectedTemplateId, this.title);
+			const sectionId = this.selectedSectionTemplateId || undefined;
+			this.onSubmit(this.selectedTemplateId, this.title, sectionId);
 			this.close();
 		});
 		buttonContainer.createEl("button", { text: "Cancel" }).addEventListener("click", () => this.close());
+	}
+
+	private updateSectionSetting(): void {
+		if (!this.sectionSetting) return;
+
+		const template = this.templates.find((t) => t.id === this.selectedTemplateId);
+		const sections = template?.structured
+			? getPublicationSectionTemplates(template, this.settings)
+			: [];
+
+		this.sectionSetting.settingEl.style.display = sections.length > 1 ? "" : "none";
+
+		this.sectionSetting.clear();
+
+		if (sections.length <= 1) {
+			this.selectedSectionTemplateId = sections[0]?.id ?? "";
+			return;
+		}
+
+		this.sectionSetting
+			.setName("Section kind")
+			.setDesc("Which allowed section kind and markup to use for this publication file")
+			.addDropdown((dropdown) => {
+				for (const s of sections) {
+					dropdown.addOption(s.id, `kind ${s.kind} (${s.markup})`);
+				}
+				this.selectedSectionTemplateId = sections[0].id;
+				dropdown.setValue(sections[0].id);
+				dropdown.onChange((value) => {
+					this.selectedSectionTemplateId = value;
+				});
+			});
 	}
 
 	onClose() {

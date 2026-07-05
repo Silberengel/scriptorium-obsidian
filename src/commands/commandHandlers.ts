@@ -11,7 +11,9 @@ import { buildEvents } from "../eventManager";
 import { saveEvents, loadEvents, eventsFileExists, getEventsFilePath, deleteEvents } from "../eventStorage";
 import { publishEventsWithRetry } from "../nostr/relayClient";
 import { getWriteRelays, getEffectiveRelayList } from "../relayManager";
-import { parseAsciiDocStructure, isAsciiDocDocument } from "../asciidocParser";
+import { parseDocumentStructure, isStructuredSourceDocument } from "../structureParser";
+import { isAsciiDocDocument } from "../asciidocParser";
+import { getMarkdownBody, parseMarkdownDocumentHeader } from "../markdownParser";
 import { validateAsciiDocDocument } from "../asciidocValidator";
 import { verifyEventSecurity } from "../utils/security";
 import { showErrorNotice } from "../utils/errorHandling";
@@ -22,11 +24,15 @@ import {
 } from "../ui/publishResultsModal";
 import { log, logError } from "../utils/console";
 import { determineTemplate } from "../utils/eventKind";
-import { resolveTemplate, getTemplateById, getFolderName } from "../templateRegistry";
+import {
+	resolveTemplate,
+	getFolderName,
+	getDocumentMarkup,
+	resolveSectionTemplate,
+} from "../templateRegistry";
 import { StructurePreviewModal } from "../ui/structurePreviewModal";
 import { MetadataReminderModal } from "../ui/metadataReminderModal";
 import { MetadataModal } from "../ui/metadataModal";
-import { isAsciiDocFile } from "../utils/fileExtensions";
 
 const MISSING_KEY_NOTICE =
 	"Set SCRIPTORIUM_OBSIDIAN_KEY in your environment and restart Obsidian";
@@ -108,13 +114,19 @@ export async function handleCreateEvents(
 
 		if (!metadata) {
 			metadata = createDefaultMetadata(template);
-			await writeMetadata(file, metadata, app, template);
+			await writeMetadata(file, metadata, app, template, settings);
 			metadata = (await readMetadata(file, app, template)) ?? metadata;
 		}
 
-		if (template.structured && isAsciiDocDocument(content)) {
-			const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
-			metadata = mergeWithHeaderTitle(metadata, headerTitle);
+		if (template.structured) {
+			const markup = getDocumentMarkup(template, settings, metadata);
+			if (markup === "asciidoc" && isAsciiDocDocument(content)) {
+				const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+				metadata = mergeWithHeaderTitle(metadata, headerTitle);
+			} else if (markup === "markdown") {
+				const header = parseMarkdownDocumentHeader(getMarkdownBody(content));
+				if (header) metadata = mergeWithHeaderTitle(metadata, header.title);
+			}
 		}
 
 		new MetadataReminderModal(app, template, metadata, async () => {
@@ -125,23 +137,36 @@ export async function handleCreateEvents(
 					metadata ??
 					createDefaultMetadata(template);
 
-				if (template.structured && isAsciiDocDocument(updatedContent)) {
-					const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
-					updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
+				const resolvedTemplate = resolveTemplate(updatedMetadata, settings);
+
+				if (resolvedTemplate.structured) {
+					const markup = getDocumentMarkup(resolvedTemplate, settings, updatedMetadata);
+					if (markup === "asciidoc" && isAsciiDocDocument(updatedContent)) {
+						const headerTitle = updatedContent.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+						updatedMetadata = mergeWithHeaderTitle(updatedMetadata, headerTitle);
+					} else if (markup === "markdown") {
+						const header = parseMarkdownDocumentHeader(getMarkdownBody(updatedContent));
+						if (header) updatedMetadata = mergeWithHeaderTitle(updatedMetadata, header.title);
+					}
 				}
 
-				const resolvedTemplate = resolveTemplate(updatedMetadata, settings);
 				const validation = validateMetadata(updatedMetadata, resolvedTemplate);
 				if (!validation.valid) {
 					new Notice(`Metadata validation failed: ${validation.errors.join(", ")}`);
 					return;
 				}
 
-				if (isAsciiDocFile(file) && resolvedTemplate.structured && isAsciiDocDocument(updatedContent)) {
-					const asciiDocValidation = validateAsciiDocDocument(updatedContent);
-					if (!asciiDocValidation.valid) {
-						new Notice(`AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`);
-						return;
+				const docMarkup = getDocumentMarkup(resolvedTemplate, settings, updatedMetadata);
+				if (
+					resolvedTemplate.structured &&
+					isStructuredSourceDocument(updatedContent, docMarkup, file)
+				) {
+					if (docMarkup === "asciidoc") {
+						const asciiDocValidation = validateAsciiDocDocument(updatedContent);
+						if (!asciiDocValidation.valid) {
+							new Notice(`AsciiDoc validation failed:\n${asciiDocValidation.errors.join("\n")}`);
+							return;
+						}
 					}
 				}
 
@@ -187,17 +212,12 @@ export async function handlePreviewStructure(
 ): Promise<void> {
 	try {
 		const content = await app.vault.read(file);
-		if (!isAsciiDocDocument(content)) {
-			new Notice("This file is not an AsciiDoc document with structure");
-			return;
-		}
-
 		let { metadata, template } = await readDocumentMetadata(app, file, content, settings);
 
 		if (!metadata || !template.structured) {
-			const indexTemplate = settings.kindTemplates.find((t) => t.id === "kind-30040-default");
+			const indexTemplate = settings.kindTemplates.find((t) => t.structured);
 			if (!indexTemplate) {
-				new Notice("No structured template found");
+				new Notice("No publication template found");
 				return;
 			}
 			template = indexTemplate;
@@ -205,15 +225,25 @@ export async function handlePreviewStructure(
 			metadata = (await readMetadata(file, app, template)) ?? metadata;
 		}
 
-		const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
-		metadata = mergeWithHeaderTitle(metadata, headerTitle);
+		const markup = getDocumentMarkup(template, settings, metadata);
+		if (!isStructuredSourceDocument(content, markup, file)) {
+			new Notice(`This file is not a valid hierarchical ${markup} document`);
+			return;
+		}
 
-		const contentTemplateId = template.contentTemplateId || "kind-30041-default";
-		const contentTemplate = getTemplateById(contentTemplateId, settings);
+		if (markup === "asciidoc") {
+			const headerTitle = content.split("\n")[0]?.replace(/^=+\s*/, "").trim() || "";
+			metadata = mergeWithHeaderTitle(metadata, headerTitle);
+		} else if (markup === "markdown") {
+			const header = parseMarkdownDocumentHeader(getMarkdownBody(content));
+			if (header) metadata = mergeWithHeaderTitle(metadata, header.title);
+		}
+
+		const contentTemplate = resolveSectionTemplate(template, settings, metadata);
 		const indexKind = template.kind;
 		const contentKind = contentTemplate?.kind ?? 30041;
 
-		const structure = parseAsciiDocStructure(content, metadata, indexKind, contentKind);
+		const structure = parseDocumentStructure(content, metadata, indexKind, contentKind, markup);
 		new StructurePreviewModal(app, structure, () => {}).open();
 	} catch (error: unknown) {
 		showErrorNotice("Error previewing structure", error);
@@ -300,7 +330,7 @@ export async function handleEditMetadata(
 
 		new MetadataModal(app, metadata, template, async (updatedMetadata) => {
 			const resolved = resolveTemplate(updatedMetadata, settings);
-			await writeMetadata(file, updatedMetadata, app, resolved);
+			await writeMetadata(file, updatedMetadata, app, resolved, settings);
 			new Notice("Metadata saved");
 		}).open();
 	} catch (error: unknown) {

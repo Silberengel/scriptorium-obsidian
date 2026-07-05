@@ -2,6 +2,8 @@ import { DEFAULT_KIND_TEMPLATES } from "./defaultKindTemplates";
 import {
 	KindTemplate,
 	KindTemplateField,
+	MarkupFormat,
+	PublicationSectionKind,
 	ScriptoriumSettings,
 	TemplateMetadata,
 } from "./types";
@@ -31,6 +33,32 @@ export function ensureKindTemplates(settings: ScriptoriumSettings): void {
 		}
 	}
 	delete (settings as { defaultEventKind?: number }).defaultEventKind;
+	migratePublicationTemplates(settings);
+}
+
+/** Keep publication templates compatible with the section-kind + markup model. */
+export function migratePublicationTemplates(settings: ScriptoriumSettings): void {
+	const shipped = getDefaultTemplates();
+
+	for (const template of settings.kindTemplates) {
+		if (template.structured && !template.contentTemplateIds?.length && template.contentTemplateId) {
+			template.contentTemplateIds = [template.contentTemplateId];
+		}
+	}
+
+	for (const shippedTemplate of shipped) {
+		if (!settings.kindTemplates.some((t) => t.id === shippedTemplate.id)) {
+			settings.kindTemplates.push(JSON.parse(JSON.stringify(shippedTemplate)) as KindTemplate);
+		}
+	}
+
+	const shippedPub = shipped.find((t) => t.id === "kind-30040-default");
+	const localPub = settings.kindTemplates.find((t) => t.id === "kind-30040-default");
+	if (shippedPub && localPub?.type === "default") {
+		localPub.contentTemplateId = shippedPub.contentTemplateId;
+		localPub.contentTemplateIds = [...(shippedPub.contentTemplateIds ?? [])];
+		localPub.description = shippedPub.description;
+	}
 }
 
 export function getTemplateById(id: string, settings: ScriptoriumSettings): KindTemplate | undefined {
@@ -69,7 +97,48 @@ export function getAllTemplates(settings: ScriptoriumSettings): KindTemplate[] {
 }
 
 export function getSelectableTemplates(settings: ScriptoriumSettings): KindTemplate[] {
-	return settings.kindTemplates.filter((t) => !t.contentTemplateId || t.structured);
+	const sectionConfigIds = new Set<string>();
+	for (const t of settings.kindTemplates) {
+		if (t.contentTemplateId) sectionConfigIds.add(t.contentTemplateId);
+		for (const id of t.contentTemplateIds ?? []) {
+			sectionConfigIds.add(id);
+		}
+	}
+	return settings.kindTemplates.filter((t) => !sectionConfigIds.has(t.id));
+}
+
+export function getPublicationSectionTemplateIds(publication: KindTemplate): string[] {
+	if (publication.contentTemplateIds?.length) return publication.contentTemplateIds;
+	if (publication.contentTemplateId) return [publication.contentTemplateId];
+	return [];
+}
+
+export function getPublicationSectionTemplates(
+	publication: KindTemplate,
+	settings: ScriptoriumSettings
+): KindTemplate[] {
+	return getPublicationSectionTemplateIds(publication)
+		.map((id) => getTemplateById(id, settings))
+		.filter((t): t is KindTemplate => t !== undefined);
+}
+
+export function resolveSectionTemplate(
+	publication: KindTemplate,
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata>
+): KindTemplate | undefined {
+	const sectionTemplates = getPublicationSectionTemplates(publication, settings);
+	if (sectionTemplates.length === 0) return undefined;
+
+	if (metadata?.sectionTemplateId) {
+		const match = sectionTemplates.find((t) => t.id === metadata.sectionTemplateId);
+		if (match) return match;
+	}
+
+	const primary = publication.contentTemplateId
+		? sectionTemplates.find((t) => t.id === publication.contentTemplateId)
+		: undefined;
+	return primary ?? sectionTemplates[0];
 }
 
 export function isDeletableTemplate(template: KindTemplate): boolean {
@@ -84,8 +153,37 @@ export function getRequiredFields(template: KindTemplate): KindTemplateField[] {
 	return template.fields.filter((f) => f.required);
 }
 
-export function getFileExtension(template: KindTemplate): string {
-	return template.markup === "asciidoc" ? "adoc" : "md";
+export function getContentTemplate(
+	template: KindTemplate,
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata>
+): KindTemplate | undefined {
+	if (template.structured) {
+		return resolveSectionTemplate(template, settings, metadata);
+	}
+	return undefined;
+}
+
+/** Markup for source documents. Publications inherit from the active section template. */
+export function getDocumentMarkup(
+	template: KindTemplate,
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata>
+): MarkupFormat {
+	if (template.structured) {
+		const content = getContentTemplate(template, settings, metadata);
+		if (content?.markup) return content.markup;
+	}
+	return template.markup ?? "asciidoc";
+}
+
+export function getFileExtension(
+	template: KindTemplate,
+	settings: ScriptoriumSettings,
+	metadata?: Partial<TemplateMetadata>
+): string {
+	const markup = getDocumentMarkup(template, settings, metadata);
+	return markup === "asciidoc" ? "adoc" : "md";
 }
 
 export function resetTemplateToDefault(id: string, settings: ScriptoriumSettings): KindTemplate | null {
@@ -192,27 +290,39 @@ export function validateTemplate(
 	if (!template.name) {
 		errors.push("name is required");
 	}
-	if (template.markup !== "markdown" && template.markup !== "asciidoc") {
-		errors.push('markup must be "markdown" or "asciidoc"');
-	}
-	if (template.structured && template.markup !== "asciidoc") {
-		errors.push(
-			'structured templates require "markup": "asciidoc" (AsciiDoc headings define the publication hierarchy)'
-		);
+	if (!template.structured) {
+		if (template.markup !== "markdown" && template.markup !== "asciidoc") {
+			errors.push('markup must be "markdown" or "asciidoc"');
+		}
 	}
 	if (template.structured) {
-		if (!template.contentTemplateId) {
+		const sectionIds = getPublicationSectionTemplateIds(template);
+		if (sectionIds.length === 0) {
 			errors.push(
-				'structured templates require "contentTemplateId" — the id of a non-structured content template (create a Publication Content template first, then reference its id here)'
+				'structured templates require "contentTemplateId" or "contentTemplateIds" — section templates defining allowed kind + markup (use Add → Publication)'
 			);
-		} else if (template.contentTemplateId === template.id) {
+		} else if (sectionIds.includes(template.id)) {
 			errors.push("contentTemplateId must not equal template id");
 		} else {
-			const content = allTemplates.find((t) => t.id === template.contentTemplateId);
-			if (!content) {
-				errors.push(`contentTemplateId "${template.contentTemplateId}" not found`);
-			} else if (content.structured) {
-				errors.push("content template must not be structured");
+			for (const sectionId of sectionIds) {
+				const content = allTemplates.find((t) => t.id === sectionId);
+				if (!content) {
+					errors.push(`section template "${sectionId}" not found`);
+				} else if (content.structured) {
+					errors.push(`section template "${sectionId}" must not be structured`);
+				} else if (content.markup !== "markdown" && content.markup !== "asciidoc") {
+					errors.push(
+						`section template "${sectionId}" must define "markup": "markdown" or "asciidoc"`
+					);
+				} else {
+					const kindError = validateNip01Kind(content.kind);
+					if (kindError) {
+						errors.push(`section template "${sectionId}": ${kindError}`);
+					}
+				}
+			}
+			if (template.contentTemplateId && !sectionIds.includes(template.contentTemplateId)) {
+				errors.push("contentTemplateId must appear in contentTemplateIds");
 			}
 		}
 	}
@@ -281,15 +391,19 @@ export function createCustomTemplateScaffold(): KindTemplate {
 	};
 }
 
-/** Scaffold for chapter/section content used by a structured publication index. Create this first. */
-export function createStructuredContentTemplateScaffold(): KindTemplate {
+/** Section template for one allowed content kind + markup pair. */
+export function createPublicationSectionScaffold(
+	config: PublicationSectionKind,
+	id?: string
+): KindTemplate {
+	const sectionId = id ?? `my-publication-k${config.kind}-${config.markup}`;
 	return {
-		id: "my-publication-content",
+		id: sectionId,
 		type: "custom",
-		kind: 30041,
-		name: "My Publication Content",
-		description: "Chapter or section content for a structured publication",
-		markup: "asciidoc",
+		kind: config.kind,
+		name: `Sections (kind ${config.kind}, ${config.markup})`,
+		description: `Section events: kind ${config.kind}, ${config.markup} source markup`,
+		markup: config.markup,
 		structured: false,
 		folderName: "my-publication-sections",
 		fields: [
@@ -300,19 +414,28 @@ export function createStructuredContentTemplateScaffold(): KindTemplate {
 	};
 }
 
-/** Scaffold for a structured publication index. Set contentTemplateId to your content template's id. */
-export function createStructuredIndexTemplateScaffold(
-	contentTemplateId = "my-publication-content"
+export interface PublicationSetupConfig {
+	publicationId?: string;
+	indexKind?: number;
+	name?: string;
+	sectionKinds: PublicationSectionKind[];
+}
+
+/** Hierarchical publication template — source file splits into index + section events. */
+export function createPublicationScaffold(
+	sectionTemplateIds: string[],
+	config?: { publicationId?: string; indexKind?: number; name?: string }
 ): KindTemplate {
+	const publicationId = config?.publicationId ?? "my-publication";
 	return {
-		id: "my-publication-index",
+		id: publicationId,
 		type: "custom",
-		kind: 30040,
-		name: "My Publication Index",
-		description: "Root index for a multi-part publication (book, documentation, magazine)",
-		markup: "asciidoc",
+		kind: config?.indexKind ?? 30040,
+		name: config?.name ?? "My Publication",
+		description: "Hierarchical publication: one source file splits into index and section Nostr events",
 		structured: true,
-		contentTemplateId,
+		contentTemplateId: sectionTemplateIds[0],
+		contentTemplateIds: sectionTemplateIds,
 		folderName: "my-publications",
 		fields: [
 			{ key: "title", tagType: "title", description: "Publication title (required)", required: true },
@@ -321,4 +444,39 @@ export function createStructuredIndexTemplateScaffold(
 			{ key: "topics", tagType: "topics", description: "Comma-separated topics", required: false },
 		],
 	};
+}
+
+export function createPublicationTemplates(config: PublicationSetupConfig): {
+	publication: KindTemplate;
+	sections: KindTemplate[];
+} {
+	const publicationId = config.publicationId ?? "my-publication";
+	const sections = config.sectionKinds.map((sk) =>
+		createPublicationSectionScaffold(sk, `${publicationId}-k${sk.kind}-${sk.markup}`)
+	);
+	const publication = createPublicationScaffold(
+		sections.map((s) => s.id),
+		{ publicationId, indexKind: config.indexKind, name: config.name }
+	);
+	return { publication, sections };
+}
+
+export function createPublicationTemplatePair(
+	sectionKinds: PublicationSectionKind[] = [{ kind: 30041, markup: "asciidoc" }]
+): { publication: KindTemplate; sections: KindTemplate[] } {
+	return createPublicationTemplates({ sectionKinds });
+}
+
+/** @deprecated Use createPublicationSectionScaffold */
+export function createStructuredContentTemplateScaffold(
+	markup: MarkupFormat = "asciidoc"
+): KindTemplate {
+	return createPublicationSectionScaffold({ kind: 30041, markup });
+}
+
+/** @deprecated Use createPublicationScaffold */
+export function createStructuredIndexTemplateScaffold(
+	contentTemplateId = "my-publication-sections"
+): KindTemplate {
+	return createPublicationScaffold([contentTemplateId]);
 }

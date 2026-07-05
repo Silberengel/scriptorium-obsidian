@@ -1,10 +1,8 @@
 import { App, PluginSettingTab, Setting, Notice, TextComponent } from "obsidian";
 import ScriptoriumPlugin from "../main";
-import { KindTemplate } from "../types";
+import { KindTemplate, DEFAULT_RELAY_PRESET } from "../types";
 import {
 	fetchRelayList,
-	addTheCitadelIfMissing,
-	includesTheCitadel,
 	getReadRelays,
 	getEffectiveRelayList,
 	normalizeRelayUrl,
@@ -18,8 +16,8 @@ import {
 	resetAllTemplatesToDefaults,
 	isDeletableTemplate,
 	createCustomTemplateScaffold,
-	createStructuredContentTemplateScaffold,
-	createStructuredIndexTemplateScaffold,
+	createPublicationTemplates,
+	getDocumentMarkup,
 } from "../templateRegistry";
 import { getNip01KindClass } from "../utils/nip01Kind";
 import {
@@ -27,6 +25,7 @@ import {
 	deleteKindTemplate,
 	updateKindTemplatesInSettings,
 } from "./kindTemplateEditorModal";
+import { AddPublicationModal } from "./addPublicationModal";
 
 /**
  * Settings tab for the plugin
@@ -145,22 +144,11 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		this.renderKindTemplatesSection(containerEl);
 
 		new Setting(containerEl)
-			.setName("Suggest TheCitadel Relay")
-			.setDesc("Automatically suggest adding wss://thecitadel.nostr1.com to relay list")
-			.addToggle((toggle) => {
-				toggle.setValue(this.plugin.settings.suggestTheCitadel)
-					.onChange(async (value) => {
-						this.plugin.settings.suggestTheCitadel = value;
-						await this.plugin.saveSettings();
-					});
-			});
-
-		new Setting(containerEl)
 			.setName("Default Relay")
 			.setDesc("Always included in your relay list (read + write), normalized and deduplicated with fetched relays")
 			.addText((text) => {
-				text.setValue(this.plugin.settings.defaultRelay)
-					.setPlaceholder("wss://relay.example.com")
+				text.setValue(this.plugin.settings.defaultRelay || DEFAULT_RELAY_PRESET)
+					.setPlaceholder(DEFAULT_RELAY_PRESET)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultRelay = value;
 						await this.plugin.saveSettings();
@@ -186,12 +174,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							const pubkey = getPubkeyFromPrivkey(fetchPrivkey);
 							const relayList = await fetchRelayList(pubkey);
 
-							let finalList = relayList;
-							if (this.plugin.settings.suggestTheCitadel && !includesTheCitadel(relayList)) {
-								finalList = addTheCitadelIfMissing(relayList);
-							}
-
-							this.plugin.settings.relayList = normalizeRelayList(finalList);
+							this.plugin.settings.relayList = normalizeRelayList(relayList);
 							await this.plugin.saveSettings();
 							await this.display();
 						} catch (error: any) {
@@ -296,6 +279,35 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		).open();
 	}
 
+	private addPublicationTemplates(): void {
+		new AddPublicationModal(this.app, async (config) => {
+			const publicationId = config.name
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.replace(/^-|-$/g, "") || "my-publication";
+
+			const { publication, sections } = createPublicationTemplates({
+				publicationId: `my-${publicationId}`,
+				indexKind: config.indexKind,
+				name: config.name,
+				sectionKinds: config.sectionKinds,
+			});
+
+			for (const section of sections) {
+				updateKindTemplatesInSettings(this.plugin.settings, section);
+			}
+			updateKindTemplatesInSettings(this.plugin.settings, publication);
+			await this.plugin.saveSettings();
+			await this.display();
+
+			const sectionSummary = config.sectionKinds
+				.map((s) => `kind ${s.kind} (${s.markup})`)
+				.join(", ");
+			new Notice(`Added publication "${publication.name}" with sections: ${sectionSummary}`);
+			this.openNewTemplateEditor(publication);
+		}).open();
+	}
+
 	private renderKindTemplatesSection(containerEl: HTMLElement) {
 		containerEl.createEl("h3", { text: "Event Kind Templates" });
 		containerEl.createEl("p", {
@@ -320,7 +332,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 				template.name,
 				template.type,
 				String(template.kind),
-				template.markup,
+				template.markup ?? (template.structured ? getDocumentMarkup(template, this.plugin.settings) : "—"),
 				getNip01KindClass(template.kind),
 				template.structured ? "yes" : "no",
 			];
@@ -372,7 +384,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName("Add Template")
 			.setDesc(
-				"Simple = one document. Structured publications need a Content template (sections) and an Index template (root) linked via contentTemplateId."
+				"Simple = one document, one event. Publication = hierarchical source file split into index + section events; configure allowed section kinds and markup."
 			)
 			.addButton((button) => {
 				button.setButtonText("Simple").setCta().onClick(() => {
@@ -380,13 +392,8 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 				});
 			})
 			.addButton((button) => {
-				button.setButtonText("Publication Content").onClick(() => {
-					this.openNewTemplateEditor(createStructuredContentTemplateScaffold());
-				});
-			})
-			.addButton((button) => {
-				button.setButtonText("Publication Index").onClick(() => {
-					this.openNewTemplateEditor(createStructuredIndexTemplateScaffold());
+				button.setButtonText("Publication").onClick(() => {
+					this.addPublicationTemplates();
 				});
 			});
 

@@ -1,5 +1,5 @@
 import { Relay } from "nostr-tools";
-import { RelayInfo, ScriptoriumSettings } from "./types";
+import { RelayInfo, ScriptoriumSettings, DEFAULT_RELAY_PRESET } from "./types";
 import { safeConsoleError } from "./utils/security";
 
 /**
@@ -10,11 +10,6 @@ const DEFAULT_RELAY_URLS = [
 	"wss://relay.damus.io",
 	"wss://thecitadel.nostr1.com",
 ];
-
-/**
- * Default fallback relay
- */
-const DEFAULT_FALLBACK_RELAY = "wss://thecitadel.nostr1.com";
 
 /**
  * Parse kind 10002 event to extract relay list
@@ -121,7 +116,7 @@ export async function fetchRelayList(
 	// If none found, return default fallback (normalized)
 	return [
 		{
-			url: normalizeRelayUrl(DEFAULT_FALLBACK_RELAY),
+			url: normalizeRelayUrl(DEFAULT_RELAY_PRESET),
 			read: true,
 			write: true,
 		},
@@ -200,13 +195,12 @@ export function normalizeRelayList(relayList: RelayInfo[]): RelayInfo[] {
  */
 export function getEffectiveRelayList(settings: ScriptoriumSettings): RelayInfo[] {
 	const merged = [...settings.relayList];
-	if (settings.defaultRelay?.trim()) {
-		merged.push({
-			url: settings.defaultRelay.trim(),
-			read: true,
-			write: true,
-		});
-	}
+	const defaultRelay = settings.defaultRelay?.trim() || DEFAULT_RELAY_PRESET;
+	merged.push({
+		url: defaultRelay,
+		read: true,
+		write: true,
+	});
 	return normalizeRelayList(merged);
 }
 
@@ -224,29 +218,4 @@ export function getWriteRelays(relayList: RelayInfo[]): string[] {
 export function getReadRelays(relayList: RelayInfo[]): string[] {
 	const readRelays = relayList.filter((r) => r.read).map((r) => r.url);
 	return deduplicateRelayUrls(readRelays);
-}
-
-/**
- * Check if relay list includes TheCitadel
- */
-export function includesTheCitadel(relayList: RelayInfo[]): boolean {
-	return relayList.some((r) => r.url.includes("thecitadel.nostr1.com"));
-}
-
-/**
- * Add TheCitadel to relay list if not present
- */
-export function addTheCitadelIfMissing(relayList: RelayInfo[]): RelayInfo[] {
-	if (includesTheCitadel(relayList)) {
-		return relayList;
-	}
-
-	return normalizeRelayList([
-		...relayList,
-		{
-			url: normalizeRelayUrl(DEFAULT_FALLBACK_RELAY),
-			read: true,
-			write: true,
-		},
-	]);
 }

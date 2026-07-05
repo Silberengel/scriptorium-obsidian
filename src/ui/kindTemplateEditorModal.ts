@@ -73,26 +73,29 @@ export class KindTemplateEditorModal extends Modal {
 		const simpleList = body.createEl("ul");
 		simpleList.style.marginTop = "0.25rem";
 		simpleList.createEl("li", { text: '"structured": false' });
-		simpleList.createEl("li", { text: '"markup": "markdown" or "asciidoc"' });
+		simpleList.createEl("li", { text: '"markup": "markdown" or "asciidoc" (required for content templates)' });
 		simpleList.createEl("li", { text: '"kind": NIP-01 event kind, e.g. 30023 for long-form articles' });
 
-		body.createEl("p", { text: "Structured publication (book, multi-chapter docs):" }).style.fontWeight =
+		body.createEl("p", { text: "Publication (hierarchical, one file → many events):" }).style.fontWeight =
 			"600";
 		body.createEl("p", {
-			text: "Requires two templates — create both, then link them:",
+			text: "One source file with headings splits into index events (branches, empty body) and section events (leaves, with body). Each allowed section kind + markup is a linked section template.",
 		});
 
-		const structuredList = body.createEl("ol");
+		const structuredList = body.createEl("ul");
 		structuredList.style.marginTop = "0.25rem";
 		structuredList.createEl("li", {
-			text: 'Publication Content — "structured": false, "markup": "asciidoc", kind 30041 (chapters/sections)',
+			text: 'Publication: "structured": true, index kind, "contentTemplateIds" listing section templates',
 		});
 		structuredList.createEl("li", {
-			text: 'Publication Index — "structured": true, "markup": "asciidoc", kind 30040, plus "contentTemplateId" set to the content template\'s id',
+			text: "Section templates: each defines kind + markup (e.g. 30041/asciidoc, 30818/markdown)",
+		});
+		structuredList.createEl("li", {
+			text: 'Metadata "sectionTemplateId" picks which section kind when multiple are allowed',
 		});
 
 		body.createEl("p", {
-			text: 'Use Settings → Add → "Publication Content" then "Publication Index" for ready-made scaffolds.',
+			text: 'Use Settings → Add → "Publication" to configure index kind and allowed section kinds.',
 		});
 	}
 

@@ -1,5 +1,6 @@
 import { TFile } from "obsidian";
-import { KindTemplate, KindTemplateField, TemplateMetadata } from "./types";
+import { KindTemplate, KindTemplateField, TemplateMetadata, MarkupFormat, ScriptoriumSettings } from "./types";
+import { getDocumentMarkup } from "./templateRegistry";
 import { safeConsoleError } from "./utils/security";
 import { isMarkdownFile, isAsciiDocFile } from "./utils/fileExtensions";
 import { stripEmbeddedDocumentHelp, buildDocumentHelpCallout, buildDocumentHelpAsciiDoc } from "./documentHelp";
@@ -290,8 +291,8 @@ function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTem
 	return lines.join("\n") + "\n";
 }
 
-function appendDefaultBody(lines: string[], template: KindTemplate): void {
-	if (template.markup === "asciidoc") {
+function appendDefaultBody(lines: string[], template: KindTemplate, documentMarkup: MarkupFormat): void {
+	if (documentMarkup === "asciidoc") {
 		lines.push(...buildDocumentHelpAsciiDoc(template), "");
 	} else {
 		lines.push(...buildDocumentHelpCallout(template), "");
@@ -301,25 +302,42 @@ function appendDefaultBody(lines: string[], template: KindTemplate): void {
 		lines.push("place your content here");
 		return;
 	}
+
+	// Hierarchical publication source file: AsciiDoc headings define the tree that splits into events.
 	if (template.structured) {
-		lines.push(
-			"== This is the first chapter header",
-			"",
-			"=== This is the first sub-chapter header",
-			"",
-			"place your content here",
-			"",
-			"=== This is the second sub-chapter header",
-			"",
-			"place your content here",
-			"",
-			"== This is the second chapter header",
-			"",
-			"place your content here"
-		);
+		if (documentMarkup === "asciidoc") {
+			lines.push(
+				"== First chapter",
+				"",
+				"=== First section",
+				"",
+				"Section body text here.",
+				"",
+				"=== Second section",
+				"",
+				"More section body text.",
+				"",
+				"== Second chapter",
+				"",
+				"Another chapter section."
+			);
+		} else {
+			lines.push(
+				"# First chapter",
+				"",
+				"## First section",
+				"",
+				"Section body text here.",
+				"",
+				"## Second section",
+				"",
+				"More section body text."
+			);
+		}
 		return;
 	}
-	if (template.markup === "asciidoc") {
+
+	if (documentMarkup === "asciidoc") {
 		lines.push("== This is the first header in this document", "", "place your content here");
 		return;
 	}
@@ -330,12 +348,16 @@ export async function writeMetadata(
 	file: TFile,
 	metadata: TemplateMetadata,
 	app: { vault: { read: (f: TFile) => Promise<string>; modify: (f: TFile, c: string) => Promise<void> } },
-	template: KindTemplate
+	template: KindTemplate,
+	settings?: ScriptoriumSettings
 ): Promise<void> {
 	try {
 		const currentContent = await app.vault.read(file);
 		metadata.templateId = metadata.templateId || template.id;
 		metadata.kind = template.kind;
+		const documentMarkup = settings
+			? getDocumentMarkup(template, settings, metadata)
+			: (template.markup ?? "asciidoc");
 
 		if (isMarkdownFile(file)) {
 			const { body } = parseMarkdownFrontmatter(currentContent);
@@ -347,7 +369,7 @@ export async function writeMetadata(
 			if (!trimmedBody || isOnlyHeader) {
 				finalBody = "";
 				const lines: string[] = [];
-				appendDefaultBody(lines, template);
+				appendDefaultBody(lines, template, documentMarkup);
 				finalBody = lines.join("\n");
 			}
 			const newContent = `---\n${frontmatter}---\n${finalBody}`;
@@ -396,10 +418,13 @@ export async function writeMetadata(
 
 			lines.push(`:templateId: ${metadata.templateId}`);
 			lines.push(`:kind: ${metadata.kind}`);
+			if (metadata.sectionTemplateId) {
+				lines.push(`:sectionTemplateId: ${metadata.sectionTemplateId}`);
+			}
 			lines.push("");
 
 			if (!actualBody.trim()) {
-				appendDefaultBody(lines, template);
+				appendDefaultBody(lines, template, documentMarkup);
 			} else {
 				lines.push(actualBody);
 			}
@@ -438,16 +463,25 @@ export function validateMetadata(
 	return { valid: errors.length === 0, errors };
 }
 
-export function createDefaultMetadata(template: KindTemplate, title?: string): TemplateMetadata {
+export function createDefaultMetadata(
+	template: KindTemplate,
+	title?: string,
+	sectionTemplateId?: string
+): TemplateMetadata {
 	const metadata: TemplateMetadata = {
 		templateId: template.id,
 		kind: template.kind,
 	};
 
+	if (sectionTemplateId) metadata.sectionTemplateId = sectionTemplateId;
+	else if (template.structured && template.contentTemplateId) {
+		metadata.sectionTemplateId = template.contentTemplateId;
+	}
+
 	if (title?.trim() && template.kind !== 1) metadata.title = title.trim();
-	if (template.kind === 30040) {
-		metadata.type = "book";
-		metadata.auto_update = "ask";
+	if (template.structured) {
+		metadata.type = metadata.type ?? "book";
+		metadata.auto_update = metadata.auto_update ?? "ask";
 	}
 
 	return metadata;
@@ -457,7 +491,10 @@ export function mergeWithHeaderTitle(
 	metadata: TemplateMetadata,
 	headerTitle: string
 ): TemplateMetadata {
-	if (metadata.kind === 30040 && (!metadata.title || String(metadata.title).trim() === "")) {
+	const isPublication =
+		Boolean(metadata.sectionTemplateId) ||
+		(metadata.kind >= 30040 && metadata.kind < 30050);
+	if (isPublication && (!metadata.title || String(metadata.title).trim() === "")) {
 		return { ...metadata, title: headerTitle };
 	}
 	return metadata;

@@ -4,6 +4,12 @@ export type TemplateType = "default" | "custom";
 export type MarkupFormat = "markdown" | "asciidoc";
 export type TemplateTagType = "text" | "topics" | "title";
 
+/** Allowed section kind + source markup for a hierarchical publication. */
+export interface PublicationSectionKind {
+	kind: number;
+	markup: MarkupFormat;
+}
+
 export interface KindTemplateField {
 	key: string;
 	label?: string;
@@ -19,15 +25,20 @@ export interface KindTemplate {
 	kind: number;
 	name: string;
 	description?: string;
-	markup: MarkupFormat;
+	markup?: MarkupFormat;
 	structured: boolean;
+	/** Primary section template id (default section kind/markup for new documents). */
 	contentTemplateId?: string;
+	/** All linked section template ids (each defines an allowed kind + markup). */
+	contentTemplateIds?: string[];
 	folderName?: string;
 	fields: KindTemplateField[];
 }
 
 export interface TemplateMetadata {
 	templateId?: string;
+	/** Section template id for structured publications (when multiple section kinds are allowed). */
+	sectionTemplateId?: string;
 	kind: number;
 	title?: string;
 	author?: string;
@@ -69,7 +80,6 @@ export interface SignedEvent extends NostrEvent {
  */
 export interface ScriptoriumSettings {
 	relayList: RelayInfo[];
-	suggestTheCitadel: boolean;
 	defaultRelay: string;
 	kindTemplates: KindTemplate[];
 	defaultTemplateId: string;
@@ -117,12 +127,16 @@ export interface PublishingResult {
 }
 
 /**
+ * Default relay always merged into the effective relay list.
+ */
+export const DEFAULT_RELAY_PRESET = "wss://thecitadel.nostr1.com";
+
+/**
  * Default plugin settings
  */
 export const DEFAULT_SETTINGS: ScriptoriumSettings = {
 	relayList: [],
-	suggestTheCitadel: true,
-	defaultRelay: "wss://thecitadel.nostr1.com",
+	defaultRelay: DEFAULT_RELAY_PRESET,
 	kindTemplates: [],
 	defaultTemplateId: "kind-1-default",
 };
