@@ -20,9 +20,88 @@ on GitHub https://github.com/Silberengel/scriptorium-obsidian
 
 ## Quick Start
 
-Before beginning, install Obsidian and create a vault. Use the folder location of the vault in place of `~/Documents/MyVault`.
+Before beginning, install [Obsidian](https://obsidian.md) and create a vault. Use the folder location of the vault in place of `~/Documents/MyVault`.
 
-### Installation
+**Important:** This plugin reads your Nostr private key **only** from the environment variable `SCRIPTORIUM_OBSIDIAN_KEY`. There is no settings field to paste a key. You must export the variable **in the same terminal session** before starting Obsidian — otherwise signing and publishing will not work.
+
+### 1. Set up your Nostr key (do this first)
+
+**Generate a key** (if you do not already have one):
+
+```bash
+./start-obsidian.sh --generate-key
+```
+
+Copy the `export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."` line from the output.
+
+**Load the key in your shell** (every time you open a new terminal, unless you add it to your profile):
+
+```bash
+export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
+```
+
+**Optional but recommended** — add that export line to your shell profile so every new terminal has the key automatically (see below).
+
+#### Add the key to your shell profile (persistent)
+
+Your **profile** is a small script your shell runs when you open a terminal. Adding the `export` line there means you do not have to type it every time.
+
+**1. Choose the right file**
+
+| Shell | Profile file |
+| ----- | ------------ |
+| Bash (default on many Linux distros) | `~/.bashrc` |
+| Zsh (default on macOS) | `~/.zshrc` |
+
+Not sure which you use? Run `echo $SHELL` — if it ends in `zsh`, use `~/.zshrc`; if `bash`, use `~/.bashrc`.
+
+**2. Open the file in a text editor**
+
+```bash
+nano ~/.bashrc
+# or
+nano ~/.zshrc
+```
+
+**3. Add this line at the end** (use your real `nsec`, from `--generate-key` or your existing key):
+
+```bash
+export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
+```
+
+Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X` in nano).
+
+**4. Load the profile in your current terminal** (or open a new terminal):
+
+```bash
+source ~/.bashrc
+# or
+source ~/.zshrc
+```
+
+**5. Verify it is set** (should print your `nsec` — do not share this output):
+
+```bash
+echo $SCRIPTORIUM_OBSIDIAN_KEY
+```
+
+**6. Start Obsidian from that terminal:**
+
+```bash
+./start-obsidian.sh
+```
+
+**Security:** The profile file contains your private key in plain text. Restrict permissions so only you can read it:
+
+```bash
+chmod 600 ~/.bashrc   # or ~/.zshrc
+```
+
+If you launch Obsidian from a desktop shortcut instead of the terminal, it will **not** see variables from your profile. Always use `./start-obsidian.sh` (or start Obsidian from a terminal where you have run `source ~/.bashrc` / `source ~/.zshrc`).
+
+### 2. Install and start Obsidian
+
+Run this **after** exporting the key in the same terminal:
 
 ```bash
 # First run (vault path required)
@@ -32,24 +111,25 @@ Before beginning, install Obsidian and create a vault. Use the folder location o
 ./start-obsidian.sh
 ```
 
-The script automatically installs dependencies, builds the plugin, and starts Obsidian.
+The script installs dependencies, builds the plugin, and launches Obsidian with your shell environment (including the key).
 
-### Setup
+### 3. Configure relays (inside Obsidian)
 
-1. **Generate a Nostr key** (if needed):
-  ```bash
-   ./start-obsidian.sh --generate-key
-  ```
-   Add the shown export command to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.).
-2. **Set your private key** (env-only — never stored in vault settings):
-  ```bash
-   export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
-  ```
-   Restart Obsidian after setting the variable (launch via `./start-obsidian.sh` so the shell environment is inherited).
-3. **Configure relays**:
-  - Open Obsidian Settings → Scriptorium Nostr
-  - Set your **Default Relay** (always included in read/write relay list)
-  - Click "Fetch" to get your kind 10002 relay list
+1. Open **Settings → Scriptorium Nostr**
+2. Confirm **Your Identity** shows your npub (if it says to set the env var, close Obsidian, export the key, and run `./start-obsidian.sh` again)
+3. Set your **Default Relay** (always included in read/write relay list)
+4. Click **Fetch** to load your kind 10002 relay list
+
+### Already installed but no key working?
+
+Close Obsidian completely, then in a terminal:
+
+```bash
+export SCRIPTORIUM_OBSIDIAN_KEY="nsec1..."
+./start-obsidian.sh
+```
+
+Do not paste the key into Obsidian settings — it is not stored there and will not be read from the vault.
 
 ## Usage
 
@@ -103,22 +183,26 @@ Supported event kinds: **30040**, **30041**, **30818**
 **Simple AsciiDoc** (kind 30818):
 
 ```asciidoc
-= Wiki Page Title
+= Sourdough Bread
 
 :kind: 30818
-:author: Author Name
-:summary: Page description
+:author: John Doe
+:summary: All about proofing and maintaining a sourdough.
 :image: https://example.com/image.jpg
-:topics: bitcoin, nostr
+:topics: baking, sourdough, bread
+
+This is an article on the topic of sourdough bread baking...
 ```
 
 **Structured AsciiDoc** (kind 30040 with nested 30041):
+
+**Three-level structure** (book + chapters + subchapters/sections):
 
 ```asciidoc
 = Book Title
 
 :kind: 30040
-:author: Author Name
+:author: Jane Doe
 :type: book
 :summary: Book description
 :collection_id: bible
@@ -244,6 +328,7 @@ All predefined metadata fields are shown in frontmatter/attributes with placehol
 3. Copy `main.js` and `manifest.json` to `.obsidian/plugins/scriptorium-obsidian/`
 4. Enable in Obsidian Settings → Community Plugins
 5. Install [obsidian-asciidoc](https://github.com/dzruyk/obsidian-asciidoc) plugin (required for `.adoc` files)
+6. **Before using signing/publishing:** set `SCRIPTORIUM_OBSIDIAN_KEY` in your environment and restart Obsidian from a terminal that has the variable exported (see Quick Start step 1)
 
 ## Development
 
