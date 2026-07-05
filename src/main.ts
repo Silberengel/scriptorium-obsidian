@@ -2,7 +2,6 @@ import { Plugin, TFile, Notice, Menu } from "obsidian";
 import { ScriptoriumSettings, DEFAULT_SETTINGS } from "./types";
 import { ScriptoriumSettingTab } from "./ui/settingsTab";
 import { NewDocumentModal } from "./ui/newDocumentModal";
-import { registerDocumentHelpBanner } from "./ui/documentHelpBanner";
 import { writeMetadata, createDefaultMetadata } from "./metadataManager";
 import { safeConsoleError } from "./utils/security";
 import { showErrorNotice } from "./utils/errorHandling";
@@ -93,8 +92,6 @@ export default class ScriptoriumPlugin extends Plugin {
 			});
 
 			this.addStatusBarItem().setText("Scriptorium");
-
-			registerDocumentHelpBanner(this, () => this.settings);
 
 			log("Plugin loaded successfully");
 		} catch (error: unknown) {

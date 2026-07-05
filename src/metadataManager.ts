@@ -2,7 +2,7 @@ import { TFile } from "obsidian";
 import { KindTemplate, KindTemplateField, TemplateMetadata } from "./types";
 import { safeConsoleError } from "./utils/security";
 import { isMarkdownFile, isAsciiDocFile } from "./utils/fileExtensions";
-import { stripEmbeddedDocumentHelp } from "./documentHelp";
+import { stripEmbeddedDocumentHelp, buildDocumentHelpCallout, buildDocumentHelpAsciiDoc } from "./documentHelp";
 
 const RESERVED_KEYS = new Set(["kind", "templateId", "published_at"]);
 
@@ -291,6 +291,12 @@ function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTem
 }
 
 function appendDefaultBody(lines: string[], template: KindTemplate): void {
+	if (template.markup === "asciidoc") {
+		lines.push(...buildDocumentHelpAsciiDoc(template), "");
+	} else {
+		lines.push(...buildDocumentHelpCallout(template), "");
+	}
+
 	if (template.kind === 1) {
 		lines.push("place your content here");
 		return;
