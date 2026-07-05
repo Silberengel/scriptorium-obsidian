@@ -120,14 +120,20 @@ export default class ScriptoriumPlugin extends Plugin {
 		const saved = await this.loadData();
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
 
+		let removedLegacySettings = false;
 		if (saved && "privateKey" in saved) {
-			delete (saved as Record<string, unknown>).privateKey;
-			await this.saveData(this.settings);
+			delete (this.settings as unknown as Record<string, unknown>).privateKey;
+			removedLegacySettings = true;
 			log("Removed legacy private key from saved settings");
 		}
 
 		if (saved && "autoAuth" in saved) {
-			delete (saved as Record<string, unknown>).autoAuth;
+			delete (this.settings as unknown as Record<string, unknown>).autoAuth;
+			removedLegacySettings = true;
+		}
+
+		if (removedLegacySettings) {
+			await this.saveData(this.settings);
 		}
 
 		ensureKindTemplates(this.settings);

@@ -275,7 +275,7 @@ All event kinds are defined as **JSON templates** in plugin settings (Settings â
 - Relay behavior (regular / replaceable / addressable per NIP-01) is derived from the kind number, not from template config.
 - `published_at` and `d` tags are added automatically based on NIP-01 kind class.
 
-Reference: [`src/defaultKindTemplates.json`](src/defaultKindTemplates.json) and [`src/defaultKindTemplates.ts`](src/defaultKindTemplates.ts).
+Reference: [`src/shippedKindTemplates.json`](src/shippedKindTemplates.json) and [`src/defaultKindTemplates.ts`](src/defaultKindTemplates.ts).
 
 ### Editing templates
 

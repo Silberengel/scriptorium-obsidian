@@ -20,6 +20,8 @@
 			"ES2020"
 		],
 		"skipLibCheck": true,
+		"resolveJsonModule": true,
+		"esModuleInterop": true,
 		"strictNullChecks": true,
 		"strict": true
 	},

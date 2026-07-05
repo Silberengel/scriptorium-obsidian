@@ -1,7 +1,12 @@
 import { KindTemplate, TemplateMetadata } from "../types";
-import { normalizeDTag } from "./eventBuilder";
+import { uniqueDTag } from "./eventBuilder";
 import { requiresDTag, requiresPublishedAt } from "../utils/nip01Kind";
 import { addNKBIP08TagsTo30040, addNKBIP08TagsTo30041 } from "./nkbip08Tags";
+
+export interface BuildTagsOptions {
+	createdAt?: number;
+	dTag?: string;
+}
 
 function normalizeTopics(topics: string | string[] | undefined): string[] {
 	if (!topics) return [];
@@ -27,19 +32,22 @@ export function buildTagsFromTemplate(
 	metadata: TemplateMetadata,
 	template: KindTemplate,
 	pubkey: string,
-	childEvents?: Array<{ kind: number; dTag: string; eventId?: string }>
+	childEvents?: Array<{ kind: number; dTag: string; eventId?: string }>,
+	options?: BuildTagsOptions
 ): string[][] {
 	const tags: string[][] = [];
 	const meta = metadata as Record<string, unknown>;
+	const createdAt = options?.createdAt ?? Math.floor(Date.now() / 1000);
 
 	if (requiresPublishedAt(template.kind)) {
-		tags.push(["published_at", Math.floor(Date.now() / 1000).toString()]);
+		tags.push(["published_at", String(createdAt)]);
 	}
 
 	const titleValue = meta.title;
 	if (isNonEmptyString(titleValue)) {
 		if (requiresDTag(template.kind)) {
-			tags.push(["d", normalizeDTag(titleValue)]);
+			const dTag = options?.dTag ?? uniqueDTag(titleValue, createdAt);
+			tags.push(["d", dTag]);
 		}
 	}
 

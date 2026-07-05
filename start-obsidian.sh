@@ -97,6 +97,23 @@ save_vault_path() {
     echo "[Scriptorium] Saved vault path to $VAULT_CONFIG_FILE"
 }
 
+# Function to expand and resolve a vault path safely (no eval)
+expand_vault_path() {
+    local path="$1"
+    if [[ "$path" == "~/"* ]]; then
+        path="${HOME}/${path:2}"
+    elif [[ "$path" == "~" ]]; then
+        path="$HOME"
+    fi
+    if [ -d "$path" ]; then
+        (cd "$path" && pwd)
+    elif [ -d "$(dirname "$path")" ]; then
+        echo "$(cd "$(dirname "$path")" && pwd)/$(basename "$path")"
+    else
+        echo "$path"
+    fi
+}
+
 # Function to generate a new Nostr private key
 generate_nostr_key() {
     echo "[Scriptorium] Generating new Nostr private key..."
@@ -109,27 +126,21 @@ generate_nostr_key() {
     fi
     
     # Generate key using Node.js and nostr-tools
-    # We'll use a temporary script to generate the key
-    local temp_script=$(mktemp)
+    local temp_script
+    temp_script=$(mktemp)
     cat > "$temp_script" << 'NODE_SCRIPT'
-const { generatePrivateKey, getPublicKey } = require('nostr-tools');
-const { nip19 } = require('nostr-tools');
+const { generateSecretKey, getPublicKey, nip19 } = require('nostr-tools');
 
 try {
-    // Generate a new private key (32 bytes, hex encoded)
-    const privkey = generatePrivateKey();
-    
-    // Get the public key to verify
-    const pubkey = getPublicKey(privkey);
-    
-    // Encode as nsec1 (bech32)
-    const nsec = nip19.nsecEncode(privkey);
+    const privkeyBytes = generateSecretKey();
+    const pubkey = getPublicKey(privkeyBytes);
+    const nsec = nip19.nsecEncode(privkeyBytes);
     const npub = nip19.npubEncode(pubkey);
-    
-    // Output both formats
+    const hex = Array.from(privkeyBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+
     console.log(JSON.stringify({
         nsec: nsec,
-        hex: privkey,
+        hex: hex,
         npub: npub,
         pubkey: pubkey
     }));
@@ -139,8 +150,9 @@ try {
 }
 NODE_SCRIPT
     
-    # Run the script
-    local key_data=$(node "$temp_script" 2>/dev/null)
+    # Run the script from the repo directory so nostr-tools resolves
+    local key_data
+    key_data=$(cd "$SCRIPT_DIR" && node "$temp_script" 2>/dev/null)
     rm -f "$temp_script"
     
     if [ -z "$key_data" ] || echo "$key_data" | grep -q '"error"'; then
@@ -178,19 +190,7 @@ VAULT_PATH=""
 
 # If path is provided as argument, use it
 if [ -n "$1" ]; then
-    VAULT_PATH="$1"
-    # Expand ~ and resolve relative paths
-    VAULT_PATH=$(eval echo "$VAULT_PATH")
-    # Try to resolve to absolute path
-    if [ -d "$VAULT_PATH" ]; then
-        VAULT_PATH=$(cd "$VAULT_PATH" && pwd)
-    elif [ -d "$(dirname "$VAULT_PATH")" ]; then
-        # Parent exists, resolve parent and append basename
-        VAULT_PATH=$(cd "$(dirname "$VAULT_PATH")" && pwd)/$(basename "$VAULT_PATH")
-    else
-        # Can't resolve, use as-is
-        VAULT_PATH="$VAULT_PATH"
-    fi
+    VAULT_PATH="$(expand_vault_path "$1")"
     
     # Validate provided path
     if ! is_valid_vault_path "$VAULT_PATH"; then
@@ -295,10 +295,10 @@ enable_plugin() {
     
     # Add plugin to enabled list using Node.js or Python
     if command -v node &> /dev/null; then
-        # Use Node.js to update JSON
-        node << NODE_SCRIPT
+        ENABLE_PLUGINS_JSON="$plugins_json" ENABLE_PLUGIN_ID="$plugin_id" node <<'NODE_SCRIPT'
 const fs = require('fs');
-const pluginsJson = '${plugins_json}';
+const pluginsJson = process.env.ENABLE_PLUGINS_JSON;
+const pluginId = process.env.ENABLE_PLUGIN_ID;
 let plugins = [];
 try {
     const content = fs.readFileSync(pluginsJson, 'utf8');
@@ -309,22 +309,21 @@ try {
 if (!Array.isArray(plugins)) {
     plugins = [];
 }
-if (!plugins.includes('${plugin_id}')) {
-    plugins.push('${plugin_id}');
+if (!plugins.includes(pluginId)) {
+    plugins.push(pluginId);
     fs.writeFileSync(pluginsJson, JSON.stringify(plugins, null, 2));
-    console.log('Enabled plugin: ${plugin_id}');
+    console.log('Enabled plugin: ' + pluginId);
 }
 NODE_SCRIPT
         if [ $? -ne 0 ]; then
             echo "Warning: Could not enable plugin $plugin_id automatically"
         fi
     elif command -v python3 &> /dev/null; then
-        # Fallback to Python
-        python3 << PYTHON_SCRIPT
+        ENABLE_PLUGINS_JSON="$plugins_json" ENABLE_PLUGIN_ID="$plugin_id" python3 <<'PYTHON_SCRIPT'
 import json
 import os
-plugins_json = '${plugins_json}'
-plugin_id = '${plugin_id}'
+plugins_json = os.environ['ENABLE_PLUGINS_JSON']
+plugin_id = os.environ['ENABLE_PLUGIN_ID']
 try:
     with open(plugins_json, 'r') as f:
         plugins = json.load(f)

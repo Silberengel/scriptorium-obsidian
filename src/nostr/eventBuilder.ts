@@ -22,7 +22,7 @@ export function normalizeSecretKey(key: string): Uint8Array {
 		const hex = key.toLowerCase();
 		const bytes = new Uint8Array(32);
 		for (let i = 0; i < 32; i++) {
-			bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+			bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
 		}
 		return bytes;
 	}
@@ -79,6 +79,14 @@ export function normalizeDTag(title: string): string {
 	// Non-ASCII letters and numbers are preserved (already handled by regex above)
 
 	return normalized;
+}
+
+/**
+ * Build a unique d-tag from a title and UNIX timestamp (seconds).
+ */
+export function uniqueDTag(title: string, createdAt: number): string {
+	const base = normalizeDTag(title);
+	return base ? `${base}-${createdAt}` : String(createdAt);
 }
 
 /**

@@ -2,6 +2,7 @@ import { Modal, App } from "obsidian";
 import { KindTemplate } from "../types";
 import { getRequiredFields } from "../templateRegistry";
 import { TemplateMetadata } from "../types";
+import { isMetadataPlaceholder } from "../metadataManager";
 
 export class MetadataReminderModal extends Modal {
 	private template: KindTemplate;
@@ -26,10 +27,7 @@ export class MetadataReminderModal extends Modal {
 		contentEl.createEl("h2", { text: "Metadata Reminder" });
 
 		const required = getRequiredFields(this.template);
-		const missing = required.filter((f) => {
-			const v = this.metadata[f.key];
-			return v === undefined || v === null || v === "" || (typeof v === "string" && v.includes(f.description));
-		});
+		const missing = required.filter((f) => isMetadataPlaceholder(this.metadata[f.key], f));
 
 		if (missing.length > 0) {
 			contentEl.createEl("p", {

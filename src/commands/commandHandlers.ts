@@ -247,20 +247,24 @@ export async function handlePublishEvents(
 		new Notice(`Publishing ${events.length} event(s) to ${writeRelays.length} relay(s)...`);
 		const results = await publishEventsWithRetry(writeRelays, events, privkey);
 
-		let successCount = 0;
-		let failureCount = 0;
-		results.forEach((relayResults) => {
-			relayResults.forEach((result) => {
-				if (result.success) successCount++;
-				else failureCount++;
+		const total = events.length;
+		const relayLines = results
+			.filter((relayResults) => relayResults.length > 0)
+			.map((relayResults) => {
+				const relay = relayResults[0].relay;
+				const published = relayResults.filter((r) => r.success).length;
+				return `${relay}: ${published}/${total}`;
 			});
-		});
 
-		new Notice(
-			failureCount === 0
-				? `Successfully published all ${successCount} event(s)`
-				: `Published ${successCount} event(s), ${failureCount} failed`
+		const allRelaysComplete = results.every(
+			(relayResults) => relayResults.length > 0 && relayResults.every((r) => r.success)
 		);
+
+		const header = allRelaysComplete
+			? `All relays published ${total}/${total} event(s):`
+			: `Publish results (${total} event(s) in batch):`;
+
+		new Notice([header, ...relayLines].join("\n"));
 	} catch (error: unknown) {
 		showErrorNotice("Error publishing events", error);
 	}

@@ -175,7 +175,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 					.onClick(async () => {
 						const fetchPrivkey = this.plugin.getPrivateKey();
 						if (!fetchPrivkey) {
-							alert("Set SCRIPTORIUM_OBSIDIAN_KEY and restart Obsidian first");
+							new Notice("Set SCRIPTORIUM_OBSIDIAN_KEY and restart Obsidian first");
 							return;
 						}
 
@@ -192,7 +192,7 @@ export class ScriptoriumSettingTab extends PluginSettingTab {
 							await this.plugin.saveSettings();
 							await this.display();
 						} catch (error: any) {
-							alert(`Error fetching relay list: ${error.message}`);
+							new Notice(`Error fetching relay list: ${error.message}`);
 						}
 					});
 			});

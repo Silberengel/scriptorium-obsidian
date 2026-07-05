@@ -10,7 +10,7 @@ import {
 import {
 	createSignedEvent,
 	getPubkeyFromPrivkey,
-	normalizeDTag,
+	uniqueDTag,
 } from "./nostr/eventBuilder";
 import { buildTagsFromTemplate } from "./nostr/templateEventBuilder";
 import { parseAsciiDocStructure, isAsciiDocDocument } from "./asciidocParser";
@@ -29,6 +29,23 @@ import {
 	resolveTemplate,
 } from "./templateRegistry";
 
+function createDTagAllocator() {
+	const usedDTags = new Set<string>();
+	let nextCreatedAt = Math.floor(Date.now() / 1000);
+
+	return (title: string): { createdAt: number; dTag: string } => {
+		let createdAt = Math.max(nextCreatedAt, Math.floor(Date.now() / 1000));
+		let dTag = uniqueDTag(title, createdAt);
+		while (usedDTags.has(dTag)) {
+			createdAt++;
+			dTag = uniqueDTag(title, createdAt);
+		}
+		usedDTags.add(dTag);
+		nextCreatedAt = createdAt + 1;
+		return { createdAt, dTag };
+	};
+}
+
 export async function buildSimpleEvent(
 	file: TFile,
 	content: string,
@@ -37,8 +54,17 @@ export async function buildSimpleEvent(
 	privkey: string
 ): Promise<SignedEvent[]> {
 	const cleanContent = stripMetadataFromContent(file, content);
-	const tags = buildTagsFromTemplate(metadata, template, getPubkeyFromPrivkey(privkey));
-	const event = createSignedEvent(template.kind, cleanContent, tags, privkey);
+	const allocateDTag = createDTagAllocator();
+	const title = String(metadata.title || "untitled");
+	const { createdAt, dTag } = allocateDTag(title);
+	const tags = buildTagsFromTemplate(
+		metadata,
+		template,
+		getPubkeyFromPrivkey(privkey),
+		undefined,
+		{ createdAt, dTag }
+	);
+	const event = createSignedEvent(template.kind, cleanContent, tags, privkey, createdAt);
 	return [event];
 }
 
@@ -53,6 +79,7 @@ export async function buildStructuredEvents(
 	const errors: string[] = [];
 	const events: SignedEvent[] = [];
 	const pubkey = getPubkeyFromPrivkey(privkey);
+	const allocateDTag = createDTagAllocator();
 
 	if (!indexTemplate.contentTemplateId) {
 		return { events: [], structure: [], errors: ["Structured template missing contentTemplateId"] };
@@ -119,8 +146,13 @@ export async function buildStructuredEvents(
 				? applyNKBIP08TagsTo30041(baseMetadata, nkbip08Tags)
 				: baseMetadata;
 
-			const tags = buildTagsFromTemplate(contentMetadata, leafTemplate, pubkey);
-			const event = createSignedEvent(contentKind, node.content || "", tags, privkey);
+			const { createdAt, dTag } = allocateDTag(String(node.title));
+			node.dTag = dTag;
+			const tags = buildTagsFromTemplate(contentMetadata, leafTemplate, pubkey, undefined, {
+				createdAt,
+				dTag,
+			});
+			const event = createSignedEvent(contentKind, node.content || "", tags, privkey, createdAt);
 			events.push(event);
 			node.metadata = contentMetadata;
 		} else if (node.kind === indexKind) {
@@ -178,7 +210,12 @@ export async function buildStructuredEvents(
 				}
 			}
 
-			const tags = buildTagsFromTemplate(finalMetadata, indexTemplate, pubkey, childEvents);
+			const { createdAt, dTag } = allocateDTag(String(node.title));
+			node.dTag = dTag;
+			const tags = buildTagsFromTemplate(finalMetadata, indexTemplate, pubkey, childEvents, {
+				createdAt,
+				dTag,
+			});
 			const filteredTags = indexTemplate.useNKBIP08
 				? tags.filter(
 					(t) =>
@@ -193,7 +230,7 @@ export async function buildStructuredEvents(
 				addNKBIP08TagsTo30040(filteredTags, finalMetadata, isBook, isChapter, currentBookTitle, currentRootMetadata);
 			}
 
-			const event = createSignedEvent(indexKind, "", filteredTags, privkey);
+			const event = createSignedEvent(indexKind, "", filteredTags, privkey, createdAt);
 			events.push(event);
 			node.metadata = finalMetadata;
 		}
@@ -201,7 +238,7 @@ export async function buildStructuredEvents(
 
 	await buildEventsFromNode(rootNode, metadata, rootBookTitle, false, metadata);
 
-	const rootDTag = normalizeDTag(String(metadata.title || rootBookTitle));
+	const rootDTag = rootNode.dTag;
 	events.sort((a, b) => {
 		const aIsRoot = a.kind === indexKind && a.tags.find((t) => t[0] === "d")?.[1] === rootDTag;
 		const bIsRoot = b.kind === indexKind && b.tags.find((t) => t[0] === "d")?.[1] === rootDTag;

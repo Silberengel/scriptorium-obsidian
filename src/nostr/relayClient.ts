@@ -12,12 +12,19 @@ import { deduplicateRelayUrls, normalizeRelayUrl } from "../relayManager";
 const DEFAULT_TIMEOUT = 10000;
 
 function publishWithTimeout(relay: Relay, event: SignedEvent, timeout: number): Promise<string> {
-	return Promise.race([
-		relay.publish(event),
-		new Promise<string>((resolve) => {
-			setTimeout(() => resolve("timeout"), timeout);
-		}),
-	]);
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("timeout")), timeout);
+		relay.publish(event).then(
+			(reason) => {
+				clearTimeout(timer);
+				resolve(reason);
+			},
+			(err) => {
+				clearTimeout(timer);
+				reject(err);
+			}
+		);
+	});
 }
 
 /**
@@ -48,11 +55,33 @@ async function publishEventOnRelay(
 			message: success ? undefined : reason,
 		};
 	} catch (error: any) {
+		const message = sanitizeErrorMessage(error) || "Publish failed";
+		if (isAuthRequiredResponse(message)) {
+			try {
+				const reason = await handleAuthRequiredError(relay, privkey, () =>
+					publishWithTimeout(relay, event, timeout)
+				);
+				const success = isPublishSuccess(reason);
+				return {
+					eventId: event.id,
+					relay: relayUrl,
+					success,
+					message: success ? undefined : reason,
+				};
+			} catch (retryError: any) {
+				return {
+					eventId: event.id,
+					relay: relayUrl,
+					success: false,
+					message: sanitizeErrorMessage(retryError) || "Publish failed after auth retry",
+				};
+			}
+		}
 		return {
 			eventId: event.id,
 			relay: relayUrl,
 			success: false,
-			message: sanitizeErrorMessage(error) || "Publish failed",
+			message,
 		};
 	}
 }
@@ -104,13 +133,14 @@ export async function publishEventsToRelays(
 }
 
 /**
- * Publish events to relays with retry logic
+ * Publish events to all configured write relays (single attempt).
+ * Events remain in the local _events.jsonl file; adjust relays in settings
+ * and run Publish again manually if some relays fail.
  */
 export async function publishEventsWithRetry(
 	relayUrls: string[],
 	events: SignedEvent[],
-	privkey: string,
-	maxRetries: number = 3
+	privkey: string
 ): Promise<PublishingResult[][]> {
 	const normalizedUrls = deduplicateRelayUrls(relayUrls.map((url) => normalizeRelayUrl(url)));
 
@@ -118,25 +148,5 @@ export async function publishEventsWithRetry(
 		return [];
 	}
 
-	let attempts = 0;
-	let results: PublishingResult[][] = [];
-
-	while (attempts < maxRetries) {
-		results = await publishEventsToRelays(normalizedUrls, events, privkey);
-
-		const allSucceeded = results.some((relayResults) =>
-			relayResults.every((r) => r.success)
-		);
-
-		if (allSucceeded) {
-			break;
-		}
-
-		attempts++;
-		if (attempts < maxRetries) {
-			await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
-		}
-	}
-
-	return results;
+	return publishEventsToRelays(normalizedUrls, events, privkey);
 }

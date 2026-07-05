@@ -17,6 +17,8 @@ export function sanitizeErrorMessage(error: any): string {
  * Show a notice with sanitized error message
  */
 export function showErrorNotice(message: string, error?: any): void {
-	const safeMessage = error ? sanitizeErrorMessage(error) : message;
+	const safeMessage = error
+		? `${message}: ${sanitizeErrorMessage(error)}`
+		: message;
 	new Notice(safeMessage);
 }

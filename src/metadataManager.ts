@@ -22,7 +22,25 @@ function isPlaceholder(value: unknown, field: KindTemplateField): boolean {
 	if (value === null || value === undefined || value === "") return true;
 	if (typeof value !== "string") return false;
 	const placeholder = getPlaceholder(field);
-	return value === placeholder || value.trim() === placeholder || value.includes(placeholder);
+	return value === placeholder || value.trim() === placeholder;
+}
+
+export function isMetadataPlaceholder(value: unknown, field: KindTemplateField): boolean {
+	return isPlaceholder(value, field);
+}
+
+function escapeYamlString(value: string): string {
+	return JSON.stringify(value);
+}
+
+function formatYamlScalar(value: unknown): string {
+	if (typeof value === "boolean") return value ? "true" : "false";
+	if (typeof value === "number") return String(value);
+	return escapeYamlString(String(value));
+}
+
+function formatAsciiDocAttributeValue(value: unknown): string {
+	return String(value).replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function parseMarkdownFrontmatter(content: string): { metadata: Record<string, unknown>; body: string } {
@@ -37,11 +55,23 @@ function parseMarkdownFrontmatter(content: string): { metadata: Record<string, u
 	const body = match[2];
 	const metadata: Record<string, unknown> = {};
 	const lines = frontmatterText.split("\n");
+	let currentArrayKey: string | null = null;
 
-	for (const line of lines) {
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
 		const trimmed = line.trim();
 		if (!trimmed || trimmed.startsWith("#")) continue;
 
+		if (trimmed.startsWith("-")) {
+			const item = trimmed.slice(1).trim().replace(/^["']|["']$/g, "");
+			if (currentArrayKey) {
+				if (!metadata[currentArrayKey]) metadata[currentArrayKey] = [];
+				(metadata[currentArrayKey] as string[]).push(item);
+			}
+			continue;
+		}
+
+		currentArrayKey = null;
 		const colonIndex = trimmed.indexOf(":");
 		if (colonIndex === -1) continue;
 
@@ -54,18 +84,17 @@ function parseMarkdownFrontmatter(content: string): { metadata: Record<string, u
 
 		if (value.startsWith("[") && value.endsWith("]")) {
 			const arrayContent = value.slice(1, -1).trim();
-			metadata[key] = arrayContent.split(",").map((item) => item.trim().replace(/^["']|["']$/g, ""));
-		} else if (trimmed.startsWith("-")) {
-			const arrayKey = lines[lines.indexOf(line) - 1]?.split(":")[0]?.trim();
-			if (arrayKey) {
-				if (!metadata[arrayKey]) metadata[arrayKey] = [];
-				(metadata[arrayKey] as string[]).push(value.replace(/^-\s*/, "").replace(/^["']|["']$/g, ""));
-			}
+			metadata[key] = arrayContent
+				? arrayContent.split(",").map((item) => item.trim().replace(/^["']|["']$/g, ""))
+				: [];
+		} else if (value === "true") metadata[key] = true;
+		else if (value === "false") metadata[key] = false;
+		else if (/^-?\d+$/.test(value)) metadata[key] = parseInt(value, 10);
+		else if (value === "") {
+			metadata[key] = metadata[key] ?? "";
+			currentArrayKey = key;
 		} else {
-			if (value === "true") metadata[key] = true;
-			else if (value === "false") metadata[key] = false;
-			else if (/^-?\d+$/.test(value)) metadata[key] = parseInt(value, 10);
-			else metadata[key] = value;
+			metadata[key] = value;
 		}
 
 		if (key === "kind" && typeof metadata[key] === "string") {
@@ -222,19 +251,19 @@ function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTem
 	const lines: string[] = [];
 	const meta = metadata as Record<string, unknown>;
 
-	lines.push(`templateId: "${metadata.templateId || template.id}"`);
+	lines.push(`templateId: ${escapeYamlString(String(metadata.templateId || template.id))}`);
 	lines.push(`kind: ${metadata.kind}`);
 
 	for (const field of template.fields) {
 		const value = meta[field.key];
 		if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, field)) {
 			if (Array.isArray(value)) {
-				lines.push(`${field.key}: [${value.map((t: string) => `"${t}"`).join(", ")}]`);
+				lines.push(`${field.key}: [${value.map((t: string) => escapeYamlString(String(t))).join(", ")}]`);
 			} else {
-				lines.push(`${field.key}: "${value}"`);
+				lines.push(`${field.key}: ${formatYamlScalar(value)}`);
 			}
 		} else {
-			lines.push(`${field.key}: "${getPlaceholder(field)}"`);
+			lines.push(`${field.key}: ${escapeYamlString(getPlaceholder(field))}`);
 		}
 	}
 
@@ -242,9 +271,9 @@ function formatMarkdownFrontmatter(metadata: TemplateMetadata, template: KindTem
 		if (RESERVED_KEYS.has(key) || template.fields.some((f) => f.key === key)) continue;
 		if (value !== undefined && value !== null && value !== "") {
 			if (Array.isArray(value)) {
-				lines.push(`${key}: [${value.map((t: string) => `"${t}"`).join(", ")}]`);
+				lines.push(`${key}: [${value.map((t: string) => escapeYamlString(String(t))).join(", ")}]`);
 			} else {
-				lines.push(`${key}: "${value}"`);
+				lines.push(`${key}: ${formatYamlScalar(value)}`);
 			}
 		}
 	}
@@ -330,8 +359,8 @@ export async function writeMetadata(
 				const value = meta[field.key];
 				if (field.key === "title" && titleLine && (!value || isPlaceholder(value, field))) continue;
 				if (value !== undefined && value !== null && value !== "" && !isPlaceholder(value, field)) {
-					if (Array.isArray(value)) lines.push(`:${field.key}: ${value.join(", ")}`);
-					else lines.push(`:${field.key}: ${value}`);
+					if (Array.isArray(value)) lines.push(`:${field.key}: ${formatAsciiDocAttributeValue(value.join(", "))}`);
+					else lines.push(`:${field.key}: ${formatAsciiDocAttributeValue(value)}`);
 				} else {
 					lines.push(`:${field.key}: ${getPlaceholder(field)}`);
 				}
