@@ -169,7 +169,7 @@ NODE_SCRIPT
     if [ -z "$key_data" ] || echo "$key_data" | grep -q '"error"'; then
         echo "Error: Failed to generate Nostr key"
         if [ -s "$gen_err" ]; then
-            echo "$gen_err" | head -5
+            head -5 "$gen_err"
         fi
         echo "Make sure nostr-tools is installed: npm install"
         rm -f "$gen_err"
