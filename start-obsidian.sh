@@ -117,17 +117,27 @@ expand_vault_path() {
 # Function to generate a new Nostr private key
 generate_nostr_key() {
     echo "[Scriptorium] Generating new Nostr private key..."
-    
-    # Check if Node.js is available
+
     if ! command -v node &> /dev/null; then
         echo "Error: Node.js is required to generate a Nostr key"
         echo "Please install Node.js and try again"
         exit 1
     fi
-    
-    # Generate key using Node.js and nostr-tools
+
+    if [ ! -d "${SCRIPT_DIR}/node_modules/nostr-tools" ]; then
+        echo "Installing dependencies (first run)..."
+        (cd "$SCRIPT_DIR" && npm install --silent) || {
+            echo "Error: npm install failed"
+            exit 1
+        }
+    fi
+
     local temp_script
-    temp_script=$(mktemp)
+    temp_script=$(mktemp "${SCRIPT_DIR}/.nostr-key-gen.XXXXXX.js") || {
+        echo "Error: Could not create temporary script"
+        exit 1
+    }
+
     cat > "$temp_script" << 'NODE_SCRIPT'
 const { generateSecretKey, getPublicKey, nip19 } = require('nostr-tools');
 
@@ -149,22 +159,34 @@ try {
     process.exit(1);
 }
 NODE_SCRIPT
-    
-    # Run the script from the repo directory so nostr-tools resolves
+
     local key_data
-    key_data=$(cd "$SCRIPT_DIR" && node "$temp_script" 2>/dev/null)
+    local gen_err
+    gen_err=$(mktemp)
+    key_data=$(cd "$SCRIPT_DIR" && node "$temp_script" 2>"$gen_err") || true
     rm -f "$temp_script"
-    
+
     if [ -z "$key_data" ] || echo "$key_data" | grep -q '"error"'; then
         echo "Error: Failed to generate Nostr key"
+        if [ -s "$gen_err" ]; then
+            echo "$gen_err" | head -5
+        fi
         echo "Make sure nostr-tools is installed: npm install"
+        rm -f "$gen_err"
         exit 1
     fi
-    
-    # Parse the JSON output
-    local nsec=$(echo "$key_data" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.nsec)")
-    local npub=$(echo "$key_data" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.npub)")
-    
+    rm -f "$gen_err"
+
+    local nsec npub
+    nsec=$(echo "$key_data" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.nsec)") || {
+        echo "Error: Failed to parse generated key"
+        exit 1
+    }
+    npub=$(echo "$key_data" | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.npub)") || {
+        echo "Error: Failed to parse generated key"
+        exit 1
+    }
+
     echo ""
     echo "Generated new Nostr key:"
     echo "  Public key (npub): $npub"
