@@ -2,7 +2,7 @@
 
 Create, sign, and publish Nostr document events from Obsidian.
 
-**Author:** [Silberengel](https://jumble.imwald.eu/users/npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z)
+**Author:** Silberengel (`npub1l5sga6xg72phsz5422ykujprejwud075ggrr3z2hwyrfgr7eylqstegx9z`)
 
 **Repos:** [Gitea](https://git.imwald.eu/silberengel/scriptorium-obsidian) · [GitHub](https://github.com/Silberengel/scriptorium-obsidian)
 
